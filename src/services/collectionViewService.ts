@@ -1,14 +1,18 @@
 import { CollectionItem } from '../models/Collection';
 import { MesbgUnit } from '../types/mesbg-data.types';
 import { mesbgDataService } from './mesbgDataService';
+import { imageService } from './imageService';
 
 // Combined view of collection item + game data
 export interface CollectionItemView extends CollectionItem {
-  unit?: MesbgUnit;
+  unit_data?: MesbgUnit;
   display_name: string;
   army_name: string;
   unit_type: string;
   base_points: number;
+  total_points: number; // Base points + selected options
+  warband_size: number;
+  image_url?: string;
 }
 
 export const collectionViewService = {
@@ -16,13 +20,32 @@ export const collectionViewService = {
   enrichCollectionItem(item: CollectionItem): CollectionItemView {
     const unit = mesbgDataService.getUnit(item.model_id);
 
+    // Calculate total points including selected options
+    let total_points = unit?.base_points || 0;
+    if (item.selected_options && unit) {
+      item.selected_options.forEach(optId => {
+        const option = unit.options.find(opt => opt.id === optId);
+        if (option) {
+          total_points += option.points;
+        }
+      });
+    }
+
+    // Get image URL if unit exists (use profile_origin which matches image folder structure)
+    const image_url = unit
+      ? imageService.getUnitImageUrl(unit.profile_origin, unit.name)
+      : undefined;
+
     return {
       ...item,
-      unit,
+      unit_data: unit,
       display_name: item.custom_name || unit?.name || 'Unknown Unit',
       army_name: unit?.army_list || 'Unknown Army',
       unit_type: unit?.unit_type || 'Unknown',
-      base_points: unit?.base_points || 0
+      base_points: unit?.base_points || 0,
+      total_points,
+      warband_size: unit?.warband_size || 0,
+      image_url
     };
   },
 
@@ -52,7 +75,7 @@ export const collectionViewService = {
     enriched.forEach(item => {
       totalModels += item.owned_quantity;
       paintedModels += item.painted_quantity;
-      totalPoints += item.base_points * item.owned_quantity;
+      totalPoints += item.total_points * item.owned_quantity;
 
       byArmy[item.army_name] = (byArmy[item.army_name] || 0) + item.owned_quantity;
       byPaintStatus[item.paint_status] = (byPaintStatus[item.paint_status] || 0) + item.owned_quantity;

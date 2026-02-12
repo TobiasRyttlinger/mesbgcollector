@@ -1,13 +1,14 @@
-import { useState, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { PaintStatus } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
-import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
+import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
 
 export default function InventoryScreen() {
   const [collection, setCollection] = useState<CollectionItemView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedArmy, setSelectedArmy] = useState<string>('All');
   const router = useRouter();
 
   const loadCollection = async () => {
@@ -66,22 +67,55 @@ export default function InventoryScreen() {
       })}
       onLongPress={() => handleDelete(item.id)}
     >
-      <View style={styles.cardHeader}>
-        <Text style={styles.name}>{item.display_name}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getPaintStatusColor(item.paint_status) }]}>
-          <Text style={styles.statusText}>{item.paint_status}</Text>
+      <View style={styles.cardContainer}>
+        {/* Unit Image */}
+        {item.image_url && (
+          <Image
+            source={{ uri: item.image_url }}
+            style={styles.unitImage}
+            resizeMode="cover"
+            onError={(error) => {
+              console.log(`Image failed to load for ${item.display_name}:`, item.image_url);
+              console.log('Error:', error.nativeEvent.error);
+            }}
+          />
+        )}
+
+        {/* Card Content */}
+        <View style={styles.cardContent}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.name} numberOfLines={2}>{item.display_name}</Text>
+            <View style={[styles.statusBadge, { backgroundColor: getPaintStatusColor(item.paint_status) }]}>
+              <Text style={styles.statusText}>{item.paint_status}</Text>
+            </View>
+          </View>
+          <View style={styles.cardBody}>
+            <Text style={styles.army}>{item.army_name}</Text>
+            <Text style={styles.detail}>{item.unit_type} • Qty: {item.owned_quantity}</Text>
+            <Text style={styles.points}>
+              {item.total_points} pts/model
+              {item.selected_options && item.selected_options.length > 0 && ' (w/ gear)'}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.cardBody}>
-        <Text style={styles.army}>{item.army_name}</Text>
-        <Text style={styles.detail}>{item.unit_type} • Qty: {item.owned_quantity}</Text>
-        <Text style={styles.points}>{item.base_points} pts/model</Text>
       </View>
     </TouchableOpacity>
   );
 
+  // Get unique armies from collection
+  const armies = useMemo(() => {
+    const uniqueArmies = Array.from(new Set(collection.map(item => item.army_name)));
+    return ['All', ...uniqueArmies.sort()];
+  }, [collection]);
+
+  // Filter collection by selected army
+  const filteredCollection = useMemo(() => {
+    if (selectedArmy === 'All') return collection;
+    return collection.filter(item => item.army_name === selectedArmy);
+  }, [collection, selectedArmy]);
+
   const stats = collectionViewService.getStatistics(
-    collection.map(item => ({
+    filteredCollection.map(item => ({
       id: item.id,
       model_id: item.model_id,
       owned_quantity: item.owned_quantity,
@@ -102,6 +136,36 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Army Filter */}
+      {collection.length > 0 && (
+        <View style={styles.filterContainer}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterScroll}
+          >
+            {armies.map(army => (
+              <TouchableOpacity
+                key={army}
+                style={[
+                  styles.filterChip,
+                  selectedArmy === army && styles.filterChipSelected
+                ]}
+                onPress={() => setSelectedArmy(army)}
+              >
+                <Text style={[
+                  styles.filterChipText,
+                  selectedArmy === army && styles.filterChipTextSelected
+                ]}>
+                  {army}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Stats */}
       <View style={styles.statsContainer}>
         <View style={styles.statBox}>
           <Text style={styles.statNumber}>{stats.totalModels}</Text>
@@ -117,14 +181,20 @@ export default function InventoryScreen() {
         </View>
       </View>
 
-      {collection.length === 0 ? (
+      {filteredCollection.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No miniatures yet</Text>
-          <Text style={styles.emptySubtext}>Tap the + button to add your first miniature</Text>
+          <Text style={styles.emptyText}>
+            {selectedArmy === 'All' ? 'No miniatures yet' : `No ${selectedArmy} miniatures`}
+          </Text>
+          <Text style={styles.emptySubtext}>
+            {selectedArmy === 'All'
+              ? 'Tap the + button to add your first miniature'
+              : 'Try selecting a different army or add new miniatures'}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={collection}
+          data={filteredCollection}
           renderItem={renderMiniature}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
@@ -151,6 +221,38 @@ const styles = StyleSheet.create({
     marginTop: 20,
     fontSize: 16,
     color: '#7f8c8d'
+  },
+  filterContainer: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 12
+  },
+  filterScroll: {
+    paddingHorizontal: 16,
+    gap: 8
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#ecf0f1',
+    borderWidth: 1,
+    borderColor: '#bdc3c7',
+    marginRight: 8
+  },
+  filterChipSelected: {
+    backgroundColor: '#3498db',
+    borderColor: '#3498db'
+  },
+  filterChipText: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontWeight: '500'
+  },
+  filterChipTextSelected: {
+    color: '#fff',
+    fontWeight: '600'
   },
   statsContainer: {
     flexDirection: 'row',
@@ -179,18 +281,30 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
     borderRadius: 8,
-    padding: 16,
     marginBottom: 12,
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 4
+    shadowRadius: 4,
+    overflow: 'hidden'
+  },
+  cardContainer: {
+    flexDirection: 'row'
+  },
+  unitImage: {
+    width: 100,
+    height: 120,
+    backgroundColor: '#ecf0f1'
+  },
+  cardContent: {
+    flex: 1,
+    padding: 16
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 8
   },
   name: {
@@ -246,7 +360,7 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 16,
-    bottom: 16,
+    bottom: 40,
     width: 56,
     height: 56,
     borderRadius: 28,

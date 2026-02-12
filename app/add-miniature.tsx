@@ -1,18 +1,20 @@
-import { useState, useMemo } from 'react';
+import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
 import {
-  View,
+  Alert,
+  FlatList,
+  Image,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
-  StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  FlatList,
-  Alert
+  View
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { PaintStatus, createCollectionItem } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { mesbgDataService } from '../src/services/mesbgDataService';
+import { imageService } from '../src/services/imageService';
 import { MesbgUnit } from '../src/types/mesbg-data.types';
 
 export default function AddMiniatureScreen() {
@@ -24,6 +26,7 @@ export default function AddMiniatureScreen() {
   const [paint_status, setPaintStatus] = useState<PaintStatus>(PaintStatus.UNPAINTED);
   const [notes, setNotes] = useState('');
   const [showArmyPicker, setShowArmyPicker] = useState(true);
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
 
   const armies = useMemo(() => mesbgDataService.getArmyNames(), []);
 
@@ -47,6 +50,25 @@ export default function AddMiniatureScreen() {
     return units.slice(0, 50);
   }, [selectedArmy, searchQuery]);
 
+  const resetForm = () => {
+    setSelectedUnit(null);
+    setOwnedQuantity('1');
+    setPaintStatus(PaintStatus.UNPAINTED);
+    setNotes('');
+    setSearchQuery('');
+    setSelectedOptions([]);
+  };
+
+  const calculateTotalPoints = () => {
+    if (!selectedUnit) return 0;
+    let total = selectedUnit.base_points;
+    selectedOptions.forEach(optId => {
+      const option = selectedUnit.options.find(opt => opt.id === optId);
+      if (option) total += option.points;
+    });
+    return total;
+  };
+
   const handleSave = async () => {
     if (!selectedUnit) {
       Alert.alert('Error', 'Please select a unit');
@@ -59,14 +81,28 @@ export default function AddMiniatureScreen() {
       selectedUnit.model_id,
       qty,
       paint_status,
-      notes.trim() || undefined
+      notes.trim() || undefined,
+      selectedOptions.length > 0 ? selectedOptions : undefined
     );
 
     try {
       await collectionStorage.addItem(item);
-      Alert.alert('Success', 'Unit added to collection', [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
+      const totalPoints = calculateTotalPoints();
+      Alert.alert(
+        'Success',
+        `${selectedUnit.name} added to collection!\nTotal: ${totalPoints} pts/model`,
+        [
+          {
+            text: 'Add Another',
+            onPress: () => resetForm()
+          },
+          {
+            text: 'Done',
+            style: 'cancel',
+            onPress: () => router.back()
+          }
+        ]
+      );
     } catch (error) {
       Alert.alert('Error', 'Failed to save unit');
     }
@@ -142,14 +178,25 @@ export default function AddMiniatureScreen() {
 
           {selectedUnit ? (
             <View style={styles.selectedUnitCard}>
-              <View style={styles.selectedUnitHeader}>
-                <Text style={styles.selectedUnitName}>{selectedUnit.name}</Text>
-                <TouchableOpacity onPress={() => setSelectedUnit(null)}>
-                  <Text style={styles.clearButton}>✕</Text>
-                </TouchableOpacity>
+              <View style={styles.selectedUnitContainer}>
+                {/* Unit Image */}
+                <Image
+                  source={{ uri: imageService.getUnitImageUrl(selectedUnit.profile_origin, selectedUnit.name) }}
+                  style={styles.selectedUnitImage}
+                  resizeMode="cover"
+                />
+                {/* Unit Info */}
+                <View style={styles.selectedUnitInfo}>
+                  <View style={styles.selectedUnitHeader}>
+                    <Text style={styles.selectedUnitName}>{selectedUnit.name}</Text>
+                    <TouchableOpacity onPress={() => setSelectedUnit(null)}>
+                      <Text style={styles.clearButton}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.selectedUnitDetail}>{selectedUnit.unit_type}</Text>
+                  <Text style={styles.selectedUnitDetail}>{selectedUnit.base_points} points</Text>
+                </View>
               </View>
-              <Text style={styles.selectedUnitDetail}>{selectedUnit.unit_type}</Text>
-              <Text style={styles.selectedUnitDetail}>{selectedUnit.base_points} points</Text>
             </View>
           ) : (
             <View style={styles.unitListContainer}>
@@ -162,8 +209,15 @@ export default function AddMiniatureScreen() {
                     setSearchQuery('');
                   }}
                 >
-                  <Text style={styles.unitName}>{unit.name}</Text>
-                  <Text style={styles.unitType}>{unit.unit_type} • {unit.base_points} pts</Text>
+                  <Image
+                    source={{ uri: imageService.getUnitImageUrl(unit.profile_origin, unit.name) }}
+                    style={styles.unitListImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.unitItemInfo}>
+                    <Text style={styles.unitName}>{unit.name}</Text>
+                    <Text style={styles.unitType}>{unit.unit_type} • {unit.base_points} pts</Text>
+                  </View>
                 </TouchableOpacity>
               ))}
               {filteredUnits.length === 0 && searchQuery && (
@@ -172,53 +226,110 @@ export default function AddMiniatureScreen() {
             </View>
           )}
 
-        {selectedUnit && (
-          <>
-            <Text style={styles.label}>Quantity Owned</Text>
-            <TextInput
-              style={styles.input}
-              value={owned_quantity}
-              onChangeText={setOwnedQuantity}
-              keyboardType="number-pad"
-              placeholder="1"
-              placeholderTextColor="#bdc3c7"
-            />
+          {selectedUnit && (
+            <>
+              <Text style={styles.label}>Quantity Owned</Text>
+              <TextInput
+                style={styles.input}
+                value={owned_quantity}
+                onChangeText={setOwnedQuantity}
+                keyboardType="number-pad"
+                placeholder="1"
+                placeholderTextColor="#bdc3c7"
+              />
 
-            <Text style={styles.label}>Paint Status</Text>
-            <View style={styles.buttonGroup}>
-              {Object.values(PaintStatus).map(status => (
-                <TouchableOpacity
-                  key={status}
-                  style={[styles.button, paint_status === status && styles.buttonSelected]}
-                  onPress={() => setPaintStatus(status)}
-                >
-                  <Text style={[styles.buttonText, paint_status === status && styles.buttonTextSelected]}>
-                    {status}
+              {/* Wargear Options */}
+              {selectedUnit.options && selectedUnit.options.length > 0 && (
+                <>
+                  <Text style={styles.label}>
+                    Wargear & Options {selectedUnit.opt_mandatory && '(Required)'}
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  <View style={styles.optionsContainer}>
+                    {selectedUnit.options.map(option => {
+                      const isSelected = selectedOptions.includes(option.id);
+                      const isIncluded = option.included;
+                      return (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={[
+                            styles.optionItem,
+                            isSelected && styles.optionItemSelected,
+                            isIncluded && styles.optionItemIncluded
+                          ]}
+                          onPress={() => {
+                            if (isIncluded) return; // Can't toggle included items
+                            setSelectedOptions(prev =>
+                              prev.includes(option.id)
+                                ? prev.filter(id => id !== option.id)
+                                : [...prev, option.id]
+                            );
+                          }}
+                          disabled={isIncluded}
+                        >
+                          <View style={styles.optionContent}>
+                            <Text style={[
+                              styles.optionName,
+                              (isSelected || isIncluded) && styles.optionNameSelected
+                            ]}>
+                              {isIncluded ? '✓ ' : ''}{option.name}
+                              {isIncluded && ' (Included)'}
+                            </Text>
+                            <Text style={[
+                              styles.optionPoints,
+                              (isSelected || isIncluded) && styles.optionPointsSelected
+                            ]}>
+                              {option.points > 0 ? `+${option.points}` : option.points} pts
+                            </Text>
+                          </View>
+                          {option.type && (
+                            <Text style={styles.optionType}>{option.type}</Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <View style={styles.totalPointsContainer}>
+                    <Text style={styles.totalPointsLabel}>Total Points per Model:</Text>
+                    <Text style={styles.totalPointsValue}>{calculateTotalPoints()} pts</Text>
+                  </View>
+                </>
+              )}
 
-            <Text style={styles.label}>Notes (optional)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Any additional notes..."
-              placeholderTextColor="#bdc3c7"
-              multiline
-              numberOfLines={4}
-            />
+              <Text style={styles.label}>Paint Status</Text>
+              <View style={styles.buttonGroup}>
+                {Object.values(PaintStatus).map(status => (
+                  <TouchableOpacity
+                    key={status}
+                    style={[styles.button, paint_status === status && styles.buttonSelected]}
+                    onPress={() => setPaintStatus(status)}
+                  >
+                    <Text style={[styles.buttonText, paint_status === status && styles.buttonTextSelected]}>
+                      {status}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Text style={styles.saveButtonText}>Add to Collection</Text>
-            </TouchableOpacity>
-          </>
-        )}
+              <Text style={styles.label}>Notes (optional)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Any additional notes..."
+                placeholderTextColor="#bdc3c7"
+                multiline
+                numberOfLines={4}
+              />
 
-        <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
+              <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+                <Text style={styles.saveButtonText}>Add to Collection</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>
@@ -327,11 +438,23 @@ const styles = StyleSheet.create({
   },
   unitItem: {
     backgroundColor: '#fff',
-    padding: 12,
+    padding: 8,
     marginBottom: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd'
+    borderColor: '#ddd',
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  unitListImage: {
+    width: 60,
+    height: 72,
+    borderRadius: 4,
+    backgroundColor: '#ecf0f1',
+    marginRight: 12
+  },
+  unitItemInfo: {
+    flex: 1
   },
   unitName: {
     fontSize: 16,
@@ -345,9 +468,21 @@ const styles = StyleSheet.create({
   },
   selectedUnitCard: {
     backgroundColor: '#27ae60',
-    padding: 16,
     borderRadius: 8,
-    marginBottom: 16
+    marginBottom: 16,
+    overflow: 'hidden'
+  },
+  selectedUnitContainer: {
+    flexDirection: 'row'
+  },
+  selectedUnitImage: {
+    width: 120,
+    height: 140,
+    backgroundColor: '#2ecc71'
+  },
+  selectedUnitInfo: {
+    flex: 1,
+    padding: 16
   },
   selectedUnitHeader: {
     flexDirection: 'row',
@@ -426,5 +561,75 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600'
+  },
+  optionsContainer: {
+    marginTop: 8,
+    marginBottom: 16
+  },
+  optionItem: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#ddd',
+    marginBottom: 8
+  },
+  optionItemSelected: {
+    backgroundColor: '#e8f5e9',
+    borderColor: '#27ae60'
+  },
+  optionItemIncluded: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#3498db'
+  },
+  optionContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  optionName: {
+    fontSize: 15,
+    color: '#2c3e50',
+    fontWeight: '500',
+    flex: 1
+  },
+  optionNameSelected: {
+    color: '#27ae60',
+    fontWeight: '600'
+  },
+  optionPoints: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontWeight: '600',
+    marginLeft: 8
+  },
+  optionPointsSelected: {
+    color: '#27ae60',
+    fontWeight: 'bold'
+  },
+  optionType: {
+    fontSize: 12,
+    color: '#95a5a6',
+    marginTop: 4,
+    fontStyle: 'italic'
+  },
+  totalPointsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#3498db',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16
+  },
+  totalPointsLabel: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600'
+  },
+  totalPointsValue: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: 'bold'
   }
 });

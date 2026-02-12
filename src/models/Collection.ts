@@ -19,13 +19,15 @@ export interface CollectionItem {
   purchase_date?: string;
   storage_location?: string;
   custom_name?: string; // Optional: custom name override
+  selected_options?: string[]; // Array of option IDs from unit's options
 }
 
 export const createCollectionItem = (
   model_id: string,
   owned_quantity: number = 1,
   paint_status: PaintStatus = PaintStatus.UNPAINTED,
-  notes?: string
+  notes?: string,
+  selected_options?: string[]
 ): CollectionItem => {
   return {
     id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
@@ -34,6 +36,7 @@ export const createCollectionItem = (
     painted_quantity: 0,
     paint_status,
     notes,
-    date_added: new Date().toISOString()
+    date_added: new Date().toISOString(),
+    selected_options
   };
 };

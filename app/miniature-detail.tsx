@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
@@ -64,6 +64,16 @@ export default function MiniatureDetailScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      {/* Hero Image */}
+      {item.image_url && (
+        <Image
+          source={{ uri: item.image_url }}
+          style={styles.heroImage}
+          resizeMode="cover"
+        />
+      )}
+
+      {/* Header with Paint Status */}
       <View style={[styles.header, { backgroundColor: getPaintStatusColor(item.paint_status) }]}>
         <Text style={styles.name}>{item.display_name}</Text>
         <View style={styles.badge}>
@@ -77,8 +87,30 @@ export default function MiniatureDetailScreen() {
         <InfoRow label="Owned" value={item.owned_quantity.toString()} />
         <InfoRow label="Painted" value={item.painted_quantity.toString()} />
         <InfoRow label="Base Points" value={`${item.base_points} pts/model`} />
+        {item.selected_options && item.selected_options.length > 0 && (
+          <InfoRow label="Total Points" value={`${item.total_points} pts/model`} />
+        )}
         {item.warband_size > 0 && <InfoRow label="Warband Size" value={item.warband_size.toString()} />}
       </View>
+
+      {/* Selected Wargear */}
+      {item.selected_options && item.selected_options.length > 0 && item.unit_data && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Selected Wargear</Text>
+          {item.selected_options.map(optId => {
+            const option = item.unit_data!.options.find(opt => opt.id === optId);
+            if (!option) return null;
+            return (
+              <View key={optId} style={styles.wargearRow}>
+                <Text style={styles.wargearName}>• {option.name}</Text>
+                <Text style={styles.wargearPoints}>
+                  {option.points > 0 ? `+${option.points}` : option.points} pts
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       {item.unit_data && item.unit_data.MWFW && item.unit_data.MWFW.length > 0 && (
         <View style={styles.section}>
@@ -144,6 +176,11 @@ const styles = StyleSheet.create({
     marginTop: 20,
     fontSize: 16,
     color: '#7f8c8d'
+  },
+  heroImage: {
+    width: '100%',
+    height: 300,
+    backgroundColor: '#bdc3c7'
   },
   header: {
     backgroundColor: '#2c3e50',
@@ -231,5 +268,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold'
+  },
+  wargearRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ecf0f1'
+  },
+  wargearName: {
+    fontSize: 15,
+    color: '#2c3e50',
+    flex: 1
+  },
+  wargearPoints: {
+    fontSize: 14,
+    color: '#27ae60',
+    fontWeight: '600',
+    marginLeft: 8
   }
 });
