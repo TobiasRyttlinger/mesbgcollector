@@ -47,6 +47,53 @@ export default function InventoryScreen() {
     );
   };
 
+  const handleQuickActions = (item: CollectionItemView) => {
+    const actions = [];
+
+    // Quick paint status updates
+    const statuses = Object.values(PaintStatus);
+    statuses.forEach(status => {
+      if (status !== item.paint_status) {
+        actions.push({
+          text: `Mark as ${status}`,
+          onPress: async () => {
+            const collection = await collectionStorage.loadCollection();
+            const found = collection.find(c => c.id === item.id);
+            if (found) {
+              await collectionStorage.updateItem(item.id, {
+                ...found,
+                paint_status: status
+              });
+              loadCollection();
+            }
+          }
+        });
+      }
+    });
+
+    // Mark one more as painted
+    if (item.painted_quantity < item.owned_quantity) {
+      actions.push({
+        text: `+1 Painted (${item.painted_quantity + 1}/${item.owned_quantity})`,
+        onPress: async () => {
+          const collection = await collectionStorage.loadCollection();
+          const found = collection.find(c => c.id === item.id);
+          if (found) {
+            await collectionStorage.updateItem(item.id, {
+              ...found,
+              painted_quantity: found.painted_quantity + 1
+            });
+            loadCollection();
+          }
+        }
+      });
+    }
+
+    actions.push({ text: 'Cancel', style: 'cancel' as const });
+
+    Alert.alert('Quick Update', `Update ${item.display_name}`, actions as any);
+  };
+
   const getPaintStatusColor = (status: PaintStatus) => {
     switch (status) {
       case PaintStatus.UNPAINTED: return '#95a5a6';
@@ -59,47 +106,72 @@ export default function InventoryScreen() {
   };
 
   const renderMiniature = ({ item }: { item: CollectionItemView }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => router.push({
-        pathname: '/miniature-detail',
-        params: { id: item.id }
-      })}
-      onLongPress={() => handleDelete(item.id)}
-    >
-      <View style={styles.cardContainer}>
-        {/* Unit Image */}
-        {item.image_url && (
-          <Image
-            source={{ uri: item.image_url }}
-            style={styles.unitImage}
-            resizeMode="cover"
-            onError={(error) => {
-              console.log(`Image failed to load for ${item.display_name}:`, item.image_url);
-              console.log('Error:', error.nativeEvent.error);
-            }}
-          />
-        )}
+    <View style={styles.card}>
+      <TouchableOpacity
+        style={styles.cardTouchable}
+        onPress={() => router.push({
+          pathname: '/miniature-detail',
+          params: { id: item.id }
+        })}
+        onLongPress={() => handleDelete(item.id)}
+      >
+        <View style={styles.cardContainer}>
+          {/* Unit Image */}
+          {item.image_url && (
+            <Image
+              source={{ uri: item.image_url }}
+              style={styles.unitImage}
+              resizeMode="cover"
+              onError={(error) => {
+                console.log(`Image failed to load for ${item.display_name}:`, item.image_url);
+                console.log('Error:', error.nativeEvent.error);
+              }}
+            />
+          )}
 
-        {/* Card Content */}
-        <View style={styles.cardContent}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.name} numberOfLines={2}>{item.display_name}</Text>
-            <View style={[styles.statusBadge, { backgroundColor: getPaintStatusColor(item.paint_status) }]}>
-              <Text style={styles.statusText}>{item.paint_status}</Text>
+          {/* Card Content */}
+          <View style={styles.cardContent}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.name} numberOfLines={2}>{item.display_name}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: getPaintStatusColor(item.paint_status) }]}>
+                <Text style={styles.statusText}>{item.paint_status}</Text>
+              </View>
+            </View>
+            <View style={styles.cardBody}>
+              <Text style={styles.army}>{item.army_name}</Text>
+              <Text style={styles.detail}>{item.unit_type} • Qty: {item.owned_quantity}</Text>
+              <Text style={styles.points}>
+                {item.total_points} pts/model
+                {item.selected_options && item.selected_options.length > 0 && ' (w/ gear)'}
+              </Text>
+              <View style={styles.progressBar}>
+                <View style={styles.progressBarBackground}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: `${(item.painted_quantity / item.owned_quantity) * 100}%`,
+                        backgroundColor: getPaintStatusColor(item.paint_status)
+                      }
+                    ]}
+                  />
+                </View>
+                <Text style={styles.progressText}>
+                  {item.painted_quantity}/{item.owned_quantity} painted
+                </Text>
+              </View>
             </View>
           </View>
-          <View style={styles.cardBody}>
-            <Text style={styles.army}>{item.army_name}</Text>
-            <Text style={styles.detail}>{item.unit_type} • Qty: {item.owned_quantity}</Text>
-            <Text style={styles.points}>
-              {item.total_points} pts/model
-              {item.selected_options && item.selected_options.length > 0 && ' (w/ gear)'}
-            </Text>
-          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+      {/* Quick Action Button */}
+      <TouchableOpacity
+        style={styles.quickActionButton}
+        onPress={() => handleQuickActions(item)}
+      >
+        <Text style={styles.quickActionText}>⚡</Text>
+      </TouchableOpacity>
+    </View>
   );
 
   // Get unique armies from collection
@@ -180,6 +252,31 @@ export default function InventoryScreen() {
           <Text style={styles.statLabel}>Armies</Text>
         </View>
       </View>
+
+      {/* Army Progress Bar */}
+      {stats.totalModels > 0 && (
+        <View style={styles.armyProgressContainer}>
+          <View style={styles.armyProgressHeader}>
+            <Text style={styles.armyProgressLabel}>
+              {selectedArmy === 'All' ? 'Overall' : selectedArmy} Painting Progress
+            </Text>
+            <Text style={styles.armyProgressPercentage}>
+              {Math.round((stats.paintedModels / stats.totalModels) * 100)}%
+            </Text>
+          </View>
+          <View style={styles.armyProgressBarBackground}>
+            <View
+              style={[
+                styles.armyProgressBarFill,
+                { width: `${(stats.paintedModels / stats.totalModels) * 100}%` }
+              ]}
+            />
+          </View>
+          <Text style={styles.armyProgressText}>
+            {stats.paintedModels} of {stats.totalModels} models painted
+          </Text>
+        </View>
+      )}
 
       {filteredCollection.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -275,6 +372,45 @@ const styles = StyleSheet.create({
     color: '#7f8c8d',
     marginTop: 4
   },
+  armyProgressContainer: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd'
+  },
+  armyProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  armyProgressLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2c3e50'
+  },
+  armyProgressPercentage: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#27ae60'
+  },
+  armyProgressBarBackground: {
+    height: 12,
+    backgroundColor: '#ecf0f1',
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 8
+  },
+  armyProgressBarFill: {
+    height: '100%',
+    backgroundColor: '#27ae60',
+    borderRadius: 6
+  },
+  armyProgressText: {
+    fontSize: 12,
+    color: '#7f8c8d',
+    textAlign: 'center'
+  },
   list: {
     padding: 16
   },
@@ -287,7 +423,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    overflow: 'hidden'
+    overflow: 'hidden',
+    position: 'relative'
+  },
+  cardTouchable: {
+    flex: 1
   },
   cardContainer: {
     flexDirection: 'row'
@@ -339,6 +479,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#e74c3c',
     fontWeight: '600'
+  },
+  progressBar: {
+    marginTop: 8
+  },
+  progressBarBackground: {
+    height: 6,
+    backgroundColor: '#ecf0f1',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 4
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3
+  },
+  progressText: {
+    fontSize: 11,
+    color: '#7f8c8d',
+    fontWeight: '500'
+  },
+  quickActionButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#3498db',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2
+  },
+  quickActionText: {
+    fontSize: 16,
+    color: '#fff'
   },
   emptyContainer: {
     flex: 1,

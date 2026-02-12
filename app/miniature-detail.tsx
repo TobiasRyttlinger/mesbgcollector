@@ -150,6 +150,16 @@ export default function MiniatureDetailScreen() {
         )}
       </View>
 
+      <TouchableOpacity
+        style={styles.editButton}
+        onPress={() => router.push({
+          pathname: '/edit-miniature',
+          params: { id: item.id }
+        })}
+      >
+        <Text style={styles.editButtonText}>Edit Progress & Details</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
         <Text style={styles.deleteButtonText}>Delete Miniature</Text>
       </TouchableOpacity>
@@ -256,13 +266,26 @@ const styles = StyleSheet.create({
     color: '#95a5a6',
     textAlign: 'center'
   },
+  editButton: {
+    backgroundColor: '#3498db',
+    padding: 16,
+    borderRadius: 8,
+    margin: 16,
+    marginBottom: 8,
+    alignItems: 'center'
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
   deleteButton: {
     backgroundColor: '#e74c3c',
     padding: 16,
     borderRadius: 8,
-    margin: 16,
-    alignItems: 'center',
-    marginBottom: 32
+    marginHorizontal: 16,
+    marginBottom: 32,
+    alignItems: 'center'
   },
   deleteButtonText: {
     color: '#fff',

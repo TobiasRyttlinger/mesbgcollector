@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   Alert,
   FlatList,
@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { PaintStatus, createCollectionItem } from '../src/models/Collection';
+import { PaintStatus, createCollectionItem, CollectionItem } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { mesbgDataService } from '../src/services/mesbgDataService';
 import { imageService } from '../src/services/imageService';
@@ -27,6 +27,27 @@ export default function AddMiniatureScreen() {
   const [notes, setNotes] = useState('');
   const [showArmyPicker, setShowArmyPicker] = useState(true);
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [existingCollection, setExistingCollection] = useState<CollectionItem[]>([]);
+
+  // Load existing collection on mount
+  useEffect(() => {
+    loadExistingCollection();
+  }, []);
+
+  const loadExistingCollection = async () => {
+    try {
+      const collection = await collectionStorage.loadCollection();
+      setExistingCollection(collection);
+    } catch (error) {
+      console.error('Failed to load collection:', error);
+    }
+  };
+
+  // Check if the selected unit is already owned
+  const existingEntry = useMemo(() => {
+    if (!selectedUnit) return null;
+    return existingCollection.find(item => item.model_id === selectedUnit.model_id);
+  }, [selectedUnit, existingCollection]);
 
   const armies = useMemo(() => mesbgDataService.getArmyNames(), []);
 
@@ -77,6 +98,63 @@ export default function AddMiniatureScreen() {
 
     const qty = parseInt(owned_quantity) || 1;
 
+    // Check if unit already exists in collection
+    if (existingEntry) {
+      Alert.alert(
+        'Unit Already Owned',
+        `You already have ${existingEntry.owned_quantity}x ${selectedUnit.name} in your collection.\n\nWhat would you like to do?`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Add to Existing',
+            onPress: async () => {
+              const updatedItem = {
+                ...existingEntry,
+                owned_quantity: existingEntry.owned_quantity + qty
+              };
+              try {
+                await collectionStorage.updateItem(existingEntry.id, updatedItem);
+                await loadExistingCollection(); // Refresh collection
+                const totalPoints = calculateTotalPoints();
+                Alert.alert(
+                  'Success',
+                  `Added ${qty} more ${selectedUnit.name}!\nYou now have ${updatedItem.owned_quantity} total.\nTotal: ${totalPoints} pts/model`,
+                  [
+                    {
+                      text: 'Add Another',
+                      onPress: () => resetForm()
+                    },
+                    {
+                      text: 'Done',
+                      style: 'cancel',
+                      onPress: () => router.back()
+                    }
+                  ]
+                );
+              } catch (error) {
+                Alert.alert('Error', 'Failed to update unit');
+              }
+            }
+          },
+          {
+            text: 'Create Separate Entry',
+            onPress: async () => {
+              await saveNewEntry(qty);
+            }
+          }
+        ]
+      );
+    } else {
+      await saveNewEntry(qty);
+    }
+  };
+
+  const saveNewEntry = async (qty: number) => {
+    if (!selectedUnit) return;
+
     const item = createCollectionItem(
       selectedUnit.model_id,
       qty,
@@ -87,6 +165,7 @@ export default function AddMiniatureScreen() {
 
     try {
       await collectionStorage.addItem(item);
+      await loadExistingCollection(); // Refresh collection
       const totalPoints = calculateTotalPoints();
       Alert.alert(
         'Success',
@@ -178,6 +257,14 @@ export default function AddMiniatureScreen() {
 
           {selectedUnit ? (
             <View style={styles.selectedUnitCard}>
+              {/* Already Owned Badge */}
+              {existingEntry && (
+                <View style={styles.alreadyOwnedBanner}>
+                  <Text style={styles.alreadyOwnedText}>
+                    ✓ Already Owned: {existingEntry.owned_quantity}x
+                  </Text>
+                </View>
+              )}
               <View style={styles.selectedUnitContainer}>
                 {/* Unit Image */}
                 <Image
@@ -200,26 +287,36 @@ export default function AddMiniatureScreen() {
             </View>
           ) : (
             <View style={styles.unitListContainer}>
-              {filteredUnits.map((unit) => (
-                <TouchableOpacity
-                  key={unit.model_id}
-                  style={styles.unitItem}
-                  onPress={() => {
-                    setSelectedUnit(unit);
-                    setSearchQuery('');
-                  }}
-                >
-                  <Image
-                    source={{ uri: imageService.getUnitImageUrl(unit.profile_origin, unit.name) }}
-                    style={styles.unitListImage}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.unitItemInfo}>
-                    <Text style={styles.unitName}>{unit.name}</Text>
-                    <Text style={styles.unitType}>{unit.unit_type} • {unit.base_points} pts</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {filteredUnits.map((unit) => {
+                const ownedEntry = existingCollection.find(item => item.model_id === unit.model_id);
+                return (
+                  <TouchableOpacity
+                    key={unit.model_id}
+                    style={styles.unitItem}
+                    onPress={() => {
+                      setSelectedUnit(unit);
+                      setSearchQuery('');
+                    }}
+                  >
+                    <Image
+                      source={{ uri: imageService.getUnitImageUrl(unit.profile_origin, unit.name) }}
+                      style={styles.unitListImage}
+                      resizeMode="cover"
+                    />
+                    <View style={styles.unitItemInfo}>
+                      <View style={styles.unitNameRow}>
+                        <Text style={styles.unitName}>{unit.name}</Text>
+                        {ownedEntry && (
+                          <View style={styles.ownedBadge}>
+                            <Text style={styles.ownedBadgeText}>✓ {ownedEntry.owned_quantity}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.unitType}>{unit.unit_type} • {unit.base_points} pts</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
               {filteredUnits.length === 0 && searchQuery && (
                 <Text style={styles.noResults}>No units found</Text>
               )}
@@ -456,11 +553,29 @@ const styles = StyleSheet.create({
   unitItemInfo: {
     flex: 1
   },
+  unitNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4
+  },
   unitName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#2c3e50',
-    marginBottom: 4
+    flex: 1
+  },
+  ownedBadge: {
+    backgroundColor: '#f39c12',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8
+  },
+  ownedBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold'
   },
   unitType: {
     fontSize: 14,
@@ -471,6 +586,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 16,
     overflow: 'hidden'
+  },
+  alreadyOwnedBanner: {
+    backgroundColor: '#f39c12',
+    padding: 8,
+    alignItems: 'center'
+  },
+  alreadyOwnedText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold'
   },
   selectedUnitContainer: {
     flexDirection: 'row'
