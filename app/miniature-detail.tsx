@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Miniature } from '../src/models/Miniature';
-import { storageService } from '../src/services/storage';
+import { collectionStorage } from '../src/services/collectionStorage';
+import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
+import { PaintStatus } from '../src/models/Collection';
 
 export default function MiniatureDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const [miniature, setMiniature] = useState<Miniature | null>(null);
+  const [item, setItem] = useState<CollectionItemView | null>(null);
 
   useEffect(() => {
-    loadMiniature();
+    loadItem();
   }, [params.id]);
 
-  const loadMiniature = async () => {
-    const miniatures = await storageService.loadMiniatures();
-    const found = miniatures.find(m => m.id === params.id);
+  const loadItem = async () => {
+    const collection = await collectionStorage.loadCollection();
+    const found = collection.find(c => c.id === params.id);
     if (found) {
-      setMiniature(found);
+      const enriched = collectionViewService.enrichCollectionItem(found);
+      setItem(enriched);
     }
   };
 
@@ -31,8 +33,8 @@ export default function MiniatureDetailScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            if (miniature) {
-              await storageService.deleteMiniature(miniature.id);
+            if (item) {
+              await collectionStorage.deleteItem(item.id);
               router.back();
             }
           }
@@ -41,7 +43,18 @@ export default function MiniatureDetailScreen() {
     );
   };
 
-  if (!miniature) {
+  const getPaintStatusColor = (status: PaintStatus) => {
+    switch (status) {
+      case PaintStatus.UNPAINTED: return '#95a5a6';
+      case PaintStatus.PRIMED: return '#f39c12';
+      case PaintStatus.IN_PROGRESS: return '#3498db';
+      case PaintStatus.PAINTED: return '#2ecc71';
+      case PaintStatus.BASED: return '#27ae60';
+      default: return '#95a5a6';
+    }
+  };
+
+  if (!item) {
     return (
       <View style={styles.container}>
         <Text style={styles.loadingText}>Loading...</Text>
@@ -51,31 +64,58 @@ export default function MiniatureDetailScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.name}>{miniature.name}</Text>
+      <View style={[styles.header, { backgroundColor: getPaintStatusColor(item.paint_status) }]}>
+        <Text style={styles.name}>{item.display_name}</Text>
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>{miniature.paintStatus}</Text>
+          <Text style={styles.badgeText}>{item.paint_status}</Text>
         </View>
       </View>
 
       <View style={styles.section}>
-        <InfoRow label="Army" value={miniature.army} />
-        <InfoRow label="Unit Type" value={miniature.unitType} />
-        <InfoRow label="Quantity" value={miniature.quantity.toString()} />
-        {miniature.points && <InfoRow label="Points" value={`${miniature.points} pts`} />}
+        <InfoRow label="Army" value={item.army_name} />
+        <InfoRow label="Unit Type" value={item.unit_type} />
+        <InfoRow label="Owned" value={item.owned_quantity.toString()} />
+        <InfoRow label="Painted" value={item.painted_quantity.toString()} />
+        <InfoRow label="Base Points" value={`${item.base_points} pts/model`} />
+        {item.warband_size > 0 && <InfoRow label="Warband Size" value={item.warband_size.toString()} />}
       </View>
 
-      {miniature.notes && (
+      {item.unit_data && item.unit_data.MWFW && item.unit_data.MWFW.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Stats (MWFW)</Text>
+          {item.unit_data.MWFW.map((profile, idx) => (
+            <View key={idx} style={styles.statsRow}>
+              <Text style={styles.statsText}>
+                M:{profile[0] || '-'} F:{profile[1] || '-'} S:{profile[2] || '-'}
+                D:{profile[3] || '-'} A:{profile[4] || '-'} W:{profile[5] || '-'}
+                C:{profile[6] || '-'}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {item.notes && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notes</Text>
-          <Text style={styles.notes}>{miniature.notes}</Text>
+          <Text style={styles.notes}>{item.notes}</Text>
         </View>
       )}
 
       <View style={styles.section}>
         <Text style={styles.dateText}>
-          Added: {new Date(miniature.dateAdded).toLocaleDateString()}
+          Added: {new Date(item.date_added).toLocaleDateString()}
         </Text>
+        {item.purchase_date && (
+          <Text style={styles.dateText}>
+            Purchased: {new Date(item.purchase_date).toLocaleDateString()}
+          </Text>
+        )}
+        {item.storage_location && (
+          <Text style={styles.dateText}>
+            Location: {item.storage_location}
+          </Text>
+        )}
       </View>
 
       <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
@@ -157,6 +197,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#2c3e50',
     fontWeight: '600'
+  },
+  statsRow: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ecf0f1'
+  },
+  statsText: {
+    fontSize: 14,
+    color: '#2c3e50',
+    fontFamily: 'monospace',
+    fontWeight: '500'
   },
   notes: {
     fontSize: 16,
