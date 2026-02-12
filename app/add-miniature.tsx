@@ -112,51 +112,50 @@ export default function AddMiniatureScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.form}>
-        <View style={styles.selectedArmyContainer}>
-          <View>
-            <Text style={styles.label}>Selected Army</Text>
-            <Text style={styles.selectedArmyText}>{selectedArmy}</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.changeButton}
-            onPress={() => {
-              setShowArmyPicker(true);
-              setSelectedUnit(null);
-            }}
-          >
-            <Text style={styles.changeButtonText}>Change</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.label}>Search Unit</Text>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search for a unit..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholderTextColor="#bdc3c7"
-        />
-
-        {selectedUnit ? (
-          <View style={styles.selectedUnitCard}>
-            <View style={styles.selectedUnitHeader}>
-              <Text style={styles.selectedUnitName}>{selectedUnit.name}</Text>
-              <TouchableOpacity onPress={() => setSelectedUnit(null)}>
-                <Text style={styles.clearButton}>✕</Text>
-              </TouchableOpacity>
+    <View style={styles.container}>
+      <ScrollView style={styles.scrollView}>
+        <View style={styles.form}>
+          <View style={styles.selectedArmyContainer}>
+            <View>
+              <Text style={styles.label}>Selected Army</Text>
+              <Text style={styles.selectedArmyText}>{selectedArmy}</Text>
             </View>
-            <Text style={styles.selectedUnitDetail}>{selectedUnit.unit_type}</Text>
-            <Text style={styles.selectedUnitDetail}>{selectedUnit.base_points} points</Text>
+            <TouchableOpacity
+              style={styles.changeButton}
+              onPress={() => {
+                setShowArmyPicker(true);
+                setSelectedUnit(null);
+              }}
+            >
+              <Text style={styles.changeButtonText}>Change</Text>
+            </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.unitListContainer}>
-            <FlatList
-              data={filteredUnits}
-              keyExtractor={(item) => item.model_id}
-              renderItem={({ item: unit }) => (
+
+          <Text style={styles.label}>Search Unit</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for a unit..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#bdc3c7"
+          />
+
+          {selectedUnit ? (
+            <View style={styles.selectedUnitCard}>
+              <View style={styles.selectedUnitHeader}>
+                <Text style={styles.selectedUnitName}>{selectedUnit.name}</Text>
+                <TouchableOpacity onPress={() => setSelectedUnit(null)}>
+                  <Text style={styles.clearButton}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.selectedUnitDetail}>{selectedUnit.unit_type}</Text>
+              <Text style={styles.selectedUnitDetail}>{selectedUnit.base_points} points</Text>
+            </View>
+          ) : (
+            <View style={styles.unitListContainer}>
+              {filteredUnits.map((unit) => (
                 <TouchableOpacity
+                  key={unit.model_id}
                   style={styles.unitItem}
                   onPress={() => {
                     setSelectedUnit(unit);
@@ -166,15 +165,12 @@ export default function AddMiniatureScreen() {
                   <Text style={styles.unitName}>{unit.name}</Text>
                   <Text style={styles.unitType}>{unit.unit_type} • {unit.base_points} pts</Text>
                 </TouchableOpacity>
+              ))}
+              {filteredUnits.length === 0 && searchQuery && (
+                <Text style={styles.noResults}>No units found</Text>
               )}
-              ListEmptyComponent={
-                searchQuery ? <Text style={styles.noResults}>No units found</Text> : null
-              }
-              scrollEnabled={true}
-              nestedScrollEnabled={true}
-            />
-          </View>
-        )}
+            </View>
+          )}
 
         {selectedUnit && (
           <>
@@ -223,8 +219,9 @@ export default function AddMiniatureScreen() {
         <TouchableOpacity style={styles.cancelButton} onPress={() => router.back()}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -232,6 +229,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ecf0f1'
+  },
+  scrollView: {
+    flex: 1
   },
   header: {
     backgroundColor: '#2c3e50',
@@ -323,7 +323,6 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   unitListContainer: {
-    height: 400,
     marginBottom: 16
   },
   unitItem: {
