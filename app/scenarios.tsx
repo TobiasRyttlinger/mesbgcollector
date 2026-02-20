@@ -63,6 +63,7 @@ export default function ScenariosScreen() {
 
   const [search, setSearch] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('All');
+  const [selectedBook, setSelectedBook] = useState('All');
   const [showPlayable, setShowPlayable] = useState(false);
   const [collection, setCollection] = useState<CollectionItemView[]>([]);
 
@@ -72,9 +73,8 @@ export default function ScenariosScreen() {
     });
   }, []));
 
-  const locations = useMemo(() => {
-    return ['All', ...scenarioService.getLocations()];
-  }, []);
+  const locations = useMemo(() => ['All', ...scenarioService.getLocations()], []);
+  const books = useMemo(() => ['All', ...scenarioService.getSourcebooks()], []);
 
   const playabilityMap = useMemo(() => {
     const map = new Map<number, 'full' | 'partial' | 'none'>();
@@ -101,12 +101,16 @@ export default function ScenariosScreen() {
       list = list.filter(s => s.location === selectedLocation);
     }
 
+    if (selectedBook !== 'All') {
+      list = list.filter(s => s.sources.some(src => src.title === selectedBook));
+    }
+
     if (showPlayable) {
       list = list.filter(s => playableIds.has(s.id));
     }
 
     return list;
-  }, [search, selectedLocation, showPlayable, playableIds]);
+  }, [search, selectedLocation, selectedBook, showPlayable, playableIds]);
 
   const playableCount = playableIds.size;
 
@@ -240,6 +244,31 @@ export default function ScenariosScreen() {
         </ScrollView>
       </View>
 
+      {/* Book filter */}
+      <View style={[styles.filterContainer, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+          {books.map(book => (
+            <TouchableOpacity
+              key={book}
+              style={[
+                styles.filterChip,
+                { backgroundColor: c.filterChipBg, borderColor: c.border },
+                selectedBook === book && styles.filterChipBookSelected,
+              ]}
+              onPress={() => setSelectedBook(book)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: c.textMuted },
+                selectedBook === book && styles.filterChipTextSelected,
+              ]}>
+                {book === 'All' ? 'All Books' : book}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
       <FlatList
         data={filtered}
         keyExtractor={item => item.id.toString()}
@@ -267,6 +296,7 @@ const styles = StyleSheet.create({
   filterScroll: { paddingHorizontal: 12, gap: 8 },
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, marginRight: 6 },
   filterChipSelected: { backgroundColor: '#3498db', borderColor: '#3498db' },
+  filterChipBookSelected: { backgroundColor: '#8e44ad', borderColor: '#8e44ad' },
   filterChipText: { fontSize: 13, fontWeight: '500' },
   filterChipTextSelected: { color: '#fff', fontWeight: '600' },
   list: { padding: 12 },
