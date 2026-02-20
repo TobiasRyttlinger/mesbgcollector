@@ -77,16 +77,6 @@ export default function AddMiniatureScreen() {
     setSelectedOptions([]);
   };
 
-  const calculateTotalPoints = () => {
-    if (!selectedUnit) return 0;
-    let total = selectedUnit.base_points;
-    selectedOptions.forEach(optId => {
-      const option = selectedUnit.options.find(opt => opt.id === optId);
-      if (option) total += option.points;
-    });
-    return total;
-  };
-
   const handleSave = async () => {
     if (!selectedUnit) {
       Alert.alert('Error', 'Please select a unit');
@@ -108,10 +98,9 @@ export default function AddMiniatureScreen() {
               try {
                 await collectionStorage.updateItem(existingEntry.id, updatedItem);
                 await loadExistingCollection();
-                const totalPoints = calculateTotalPoints();
                 Alert.alert(
                   'Success',
-                  `Added ${qty} more ${selectedUnit.name}!\nYou now have ${updatedItem.owned_quantity} total.\nTotal: ${totalPoints} pts/model`,
+                  `Added ${qty} more ${selectedUnit.name}!\nYou now have ${updatedItem.owned_quantity} total.`,
                   [
                     { text: 'Add Another', onPress: () => resetForm() },
                     { text: 'Done', style: 'cancel', onPress: () => router.back() }
@@ -143,10 +132,9 @@ export default function AddMiniatureScreen() {
     try {
       await collectionStorage.addItem(item);
       await loadExistingCollection();
-      const totalPoints = calculateTotalPoints();
       Alert.alert(
         'Success',
-        `${selectedUnit.name} added to collection!\nTotal: ${totalPoints} pts/model`,
+        `${selectedUnit.name} added to collection!`,
         [
           { text: 'Add Another', onPress: () => resetForm() },
           { text: 'Done', style: 'cancel', onPress: () => router.back() }
@@ -293,9 +281,7 @@ export default function AddMiniatureScreen() {
 
               {selectedUnit.options && selectedUnit.options.length > 0 && (
                 <>
-                  <Text style={[styles.label, { color: c.text }]}>
-                    Wargear & Options {selectedUnit.opt_mandatory && '(Required)'}
-                  </Text>
+                  <Text style={[styles.label, { color: c.text }]}>Wargear & Equipment</Text>
                   <View style={styles.optionsContainer}>
                     {selectedUnit.options.map(option => {
                       const isSelected = selectedOptions.includes(option.id);
@@ -319,33 +305,18 @@ export default function AddMiniatureScreen() {
                           }}
                           disabled={isIncluded}
                         >
-                          <View style={styles.optionContent}>
-                            <Text style={[
-                              styles.optionName,
-                              { color: c.text },
-                              (isSelected || isIncluded) && styles.optionNameSelected
-                            ]}>
-                              {isIncluded ? '✓ ' : ''}{option.name}
-                              {isIncluded && ' (Included)'}
-                            </Text>
-                            <Text style={[
-                              styles.optionPoints,
-                              { color: c.textMuted },
-                              (isSelected || isIncluded) && styles.optionPointsSelected
-                            ]}>
-                              {option.points > 0 ? `+${option.points}` : option.points} pts
-                            </Text>
-                          </View>
-                          {option.type && (
-                            <Text style={[styles.optionType, { color: c.textMuted }]}>{option.type}</Text>
-                          )}
+                          <Text style={[
+                            styles.optionName,
+                            { color: c.text },
+                            (isSelected || isIncluded) && styles.optionNameSelected
+                          ]}>
+                            {isIncluded ? '✓ ' : isSelected ? '✓ ' : '○ '}
+                            {option.name}
+                            {isIncluded && ' (Included)'}
+                          </Text>
                         </TouchableOpacity>
                       );
                     })}
-                  </View>
-                  <View style={styles.totalPointsContainer}>
-                    <Text style={styles.totalPointsLabel}>Total Points per Model:</Text>
-                    <Text style={styles.totalPointsValue}>{calculateTotalPoints()} pts</Text>
                   </View>
                 </>
               )}

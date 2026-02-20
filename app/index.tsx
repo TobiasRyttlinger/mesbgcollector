@@ -124,10 +124,6 @@ export default function InventoryScreen() {
             <View style={styles.cardBody}>
               <Text style={[styles.army, { color: c.textSecondary }]}>{item.army_name}</Text>
               <Text style={[styles.detail, { color: c.textMuted }]}>{item.unit_type} • Qty: {item.owned_quantity}</Text>
-              <Text style={styles.points}>
-                {item.total_points} pts/model
-                {item.selected_options && item.selected_options.length > 0 && ' (w/ gear)'}
-              </Text>
               <View style={styles.progressBar}>
                 <View style={[styles.progressBarBackground, { backgroundColor: c.progressBarBg }]}>
                   <View
@@ -274,6 +270,10 @@ export default function InventoryScreen() {
         />
       )}
 
+      <TouchableOpacity style={styles.scenariosFab} onPress={() => router.push('/scenarios')}>
+        <Text style={styles.scenariosFabText}>⚔️</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.fab} onPress={() => router.push('/add-miniature')}>
         <Text style={styles.fabText}>+</Text>
       </TouchableOpacity>
@@ -338,6 +338,14 @@ const styles = StyleSheet.create({
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   emptyText: { fontSize: 20, fontWeight: 'bold', marginBottom: 8 },
   emptySubtext: { fontSize: 14, textAlign: 'center' },
+  scenariosFab: {
+    position: 'absolute', right: 84, bottom: 40,
+    width: 56, height: 56, borderRadius: 28, backgroundColor: '#8e44ad',
+    justifyContent: 'center', alignItems: 'center', elevation: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3, shadowRadius: 4
+  },
+  scenariosFabText: { fontSize: 26 },
   fab: {
     position: 'absolute', right: 16, bottom: 40,
     width: 56, height: 56, borderRadius: 28, backgroundColor: '#e74c3c',

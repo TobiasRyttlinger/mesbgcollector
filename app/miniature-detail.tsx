@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { collectionStorage } from '../src/services/collectionStorage';
-import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
-import { PaintStatus } from '../src/models/Collection';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
+import { PaintStatus } from '../src/models/Collection';
+import { collectionStorage } from '../src/services/collectionStorage';
+import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
 
 export default function MiniatureDetailScreen() {
   const router = useRouter();
@@ -83,43 +83,20 @@ export default function MiniatureDetailScreen() {
         <InfoRow label="Unit Type" value={item.unit_type} c={c} />
         <InfoRow label="Owned" value={item.owned_quantity.toString()} c={c} />
         <InfoRow label="Painted" value={item.painted_quantity.toString()} c={c} />
-        <InfoRow label="Base Points" value={`${item.base_points} pts/model`} c={c} />
-        {item.selected_options && item.selected_options.length > 0 && (
-          <InfoRow label="Total Points" value={`${item.total_points} pts/model`} c={c} />
-        )}
-        {item.warband_size > 0 && <InfoRow label="Warband Size" value={item.warband_size.toString()} c={c} />}
       </View>
 
       {item.selected_options && item.selected_options.length > 0 && item.unit_data && (
         <View style={[styles.section, { backgroundColor: c.surface }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>Selected Wargear</Text>
+          <Text style={[styles.sectionTitle, { color: c.text }]}>Wargear & Equipment</Text>
           {item.selected_options.map(optId => {
             const option = item.unit_data!.options.find(opt => opt.id === optId);
             if (!option) return null;
             return (
               <View key={optId} style={[styles.wargearRow, { borderBottomColor: c.border }]}>
-                <Text style={[styles.wargearName, { color: c.text }]}>• {option.name}</Text>
-                <Text style={styles.wargearPoints}>
-                  {option.points > 0 ? `+${option.points}` : option.points} pts
-                </Text>
+                <Text style={[styles.wargearName, { color: c.text }]}>✓ {option.name}</Text>
               </View>
             );
           })}
-        </View>
-      )}
-
-      {item.unit_data && item.unit_data.MWFW && item.unit_data.MWFW.length > 0 && (
-        <View style={[styles.section, { backgroundColor: c.surface }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>Stats (MWFW)</Text>
-          {item.unit_data.MWFW.map((profile, idx) => (
-            <View key={idx} style={[styles.statsRow, { borderBottomColor: c.border }]}>
-              <Text style={[styles.statsText, { color: c.text }]}>
-                M:{profile[0] || '-'} F:{profile[1] || '-'} S:{profile[2] || '-'}
-                D:{profile[3] || '-'} A:{profile[4] || '-'} W:{profile[5] || '-'}
-                C:{profile[6] || '-'}
-              </Text>
-            </View>
-          ))}
         </View>
       )}
 

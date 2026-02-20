@@ -25,6 +25,23 @@ function AppStack() {
         }}
       />
       <Stack.Screen
+        name="scenarios"
+        options={{
+          title: 'Scenarios',
+          headerStyle: { backgroundColor: headerBg },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      />
+      <Stack.Screen
+        name="scenario-detail"
+        options={{
+          title: 'Scenario',
+          headerStyle: { backgroundColor: headerBg },
+          headerTintColor: '#fff',
+        }}
+      />
+      <Stack.Screen
         name="add-miniature"
         options={{
           title: 'Add Miniature',
