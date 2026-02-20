@@ -1,15 +1,27 @@
 import { Stack } from 'expo-router';
+import { TouchableOpacity, Text } from 'react-native';
+import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 
-export default function RootLayout() {
+function AppStack() {
+  const { theme, toggleTheme } = useTheme();
+  const { headerBg } = theme.colors;
+
+  const toggleButton = (
+    <TouchableOpacity onPress={toggleTheme} style={{ marginRight: 12 }}>
+      <Text style={{ fontSize: 20 }}>{theme.dark ? '☀️' : '🌙'}</Text>
+    </TouchableOpacity>
+  );
+
   return (
     <Stack>
       <Stack.Screen
         name="index"
         options={{
           title: 'MESBG Inventory',
-          headerStyle: { backgroundColor: '#2c3e50' },
+          headerStyle: { backgroundColor: headerBg },
           headerTintColor: '#fff',
-          headerTitleStyle: { fontWeight: 'bold' }
+          headerTitleStyle: { fontWeight: 'bold' },
+          headerRight: () => toggleButton
         }}
       />
       <Stack.Screen
@@ -17,7 +29,7 @@ export default function RootLayout() {
         options={{
           title: 'Add Miniature',
           presentation: 'modal',
-          headerStyle: { backgroundColor: '#2c3e50' },
+          headerStyle: { backgroundColor: headerBg },
           headerTintColor: '#fff'
         }}
       />
@@ -25,10 +37,26 @@ export default function RootLayout() {
         name="miniature-detail"
         options={{
           title: 'Miniature Details',
-          headerStyle: { backgroundColor: '#2c3e50' },
+          headerStyle: { backgroundColor: headerBg },
+          headerTintColor: '#fff'
+        }}
+      />
+      <Stack.Screen
+        name="edit-miniature"
+        options={{
+          title: 'Edit Miniature',
+          headerStyle: { backgroundColor: headerBg },
           headerTintColor: '#fff'
         }}
       />
     </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <AppStack />
+    </ThemeProvider>
   );
 }

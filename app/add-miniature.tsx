@@ -16,9 +16,13 @@ import { collectionStorage } from '../src/services/collectionStorage';
 import { mesbgDataService } from '../src/services/mesbgDataService';
 import { imageService } from '../src/services/imageService';
 import { MesbgUnit } from '../src/types/mesbg-data.types';
+import { useTheme } from '../src/contexts/ThemeContext';
 
 export default function AddMiniatureScreen() {
   const router = useRouter();
+  const { theme } = useTheme();
+  const c = theme.colors;
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<MesbgUnit | null>(null);
   const [selectedArmy, setSelectedArmy] = useState<string>('');
@@ -29,7 +33,6 @@ export default function AddMiniatureScreen() {
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [existingCollection, setExistingCollection] = useState<CollectionItem[]>([]);
 
-  // Load existing collection on mount
   useEffect(() => {
     loadExistingCollection();
   }, []);
@@ -43,7 +46,6 @@ export default function AddMiniatureScreen() {
     }
   };
 
-  // Check if the selected unit is already owned
   const existingEntry = useMemo(() => {
     if (!selectedUnit) return null;
     return existingCollection.find(item => item.model_id === selectedUnit.model_id);
@@ -58,16 +60,11 @@ export default function AddMiniatureScreen() {
 
   const filteredUnits = useMemo(() => {
     if (!selectedArmy && !searchQuery) return [];
-
-    let units = selectedArmy
-      ? mesbgDataService.getUnitsByArmy(selectedArmy)
-      : mesbgDataService.getAllUnits();
-
+    let units = selectedArmy ? mesbgDataService.getUnitsByArmy(selectedArmy) : mesbgDataService.getAllUnits();
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       units = units.filter(unit => unit.name.toLowerCase().includes(query));
     }
-
     return units.slice(0, 50);
   }, [selectedArmy, searchQuery]);
 
@@ -98,40 +95,26 @@ export default function AddMiniatureScreen() {
 
     const qty = parseInt(owned_quantity) || 1;
 
-    // Check if unit already exists in collection
     if (existingEntry) {
       Alert.alert(
         'Unit Already Owned',
         `You already have ${existingEntry.owned_quantity}x ${selectedUnit.name} in your collection.\n\nWhat would you like to do?`,
         [
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          },
+          { text: 'Cancel', style: 'cancel' },
           {
             text: 'Add to Existing',
             onPress: async () => {
-              const updatedItem = {
-                ...existingEntry,
-                owned_quantity: existingEntry.owned_quantity + qty
-              };
+              const updatedItem = { ...existingEntry, owned_quantity: existingEntry.owned_quantity + qty };
               try {
                 await collectionStorage.updateItem(existingEntry.id, updatedItem);
-                await loadExistingCollection(); // Refresh collection
+                await loadExistingCollection();
                 const totalPoints = calculateTotalPoints();
                 Alert.alert(
                   'Success',
                   `Added ${qty} more ${selectedUnit.name}!\nYou now have ${updatedItem.owned_quantity} total.\nTotal: ${totalPoints} pts/model`,
                   [
-                    {
-                      text: 'Add Another',
-                      onPress: () => resetForm()
-                    },
-                    {
-                      text: 'Done',
-                      style: 'cancel',
-                      onPress: () => router.back()
-                    }
+                    { text: 'Add Another', onPress: () => resetForm() },
+                    { text: 'Done', style: 'cancel', onPress: () => router.back() }
                   ]
                 );
               } catch (error) {
@@ -141,9 +124,7 @@ export default function AddMiniatureScreen() {
           },
           {
             text: 'Create Separate Entry',
-            onPress: async () => {
-              await saveNewEntry(qty);
-            }
+            onPress: async () => { await saveNewEntry(qty); }
           }
         ]
       );
@@ -154,32 +135,21 @@ export default function AddMiniatureScreen() {
 
   const saveNewEntry = async (qty: number) => {
     if (!selectedUnit) return;
-
     const item = createCollectionItem(
-      selectedUnit.model_id,
-      qty,
-      paint_status,
+      selectedUnit.model_id, qty, paint_status,
       notes.trim() || undefined,
       selectedOptions.length > 0 ? selectedOptions : undefined
     );
-
     try {
       await collectionStorage.addItem(item);
-      await loadExistingCollection(); // Refresh collection
+      await loadExistingCollection();
       const totalPoints = calculateTotalPoints();
       Alert.alert(
         'Success',
         `${selectedUnit.name} added to collection!\nTotal: ${totalPoints} pts/model`,
         [
-          {
-            text: 'Add Another',
-            onPress: () => resetForm()
-          },
-          {
-            text: 'Done',
-            style: 'cancel',
-            onPress: () => router.back()
-          }
+          { text: 'Add Another', onPress: () => resetForm() },
+          { text: 'Done', style: 'cancel', onPress: () => router.back() }
         ]
       );
     } catch (error) {
@@ -189,17 +159,14 @@ export default function AddMiniatureScreen() {
 
   if (showArmyPicker) {
     return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Select Army</Text>
-        </View>
-        <View style={styles.searchContainer}>
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <View style={[styles.searchContainer, { backgroundColor: c.background }]}>
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { backgroundColor: c.inputBg, borderColor: c.border, color: c.text }]}
             placeholder="Search armies..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor="#bdc3c7"
+            placeholderTextColor={c.placeholder}
           />
         </View>
         <FlatList
@@ -207,14 +174,14 @@ export default function AddMiniatureScreen() {
           keyExtractor={(item) => item}
           renderItem={({ item: army }) => (
             <TouchableOpacity
-              style={styles.armyItem}
+              style={[styles.armyItem, { backgroundColor: c.surface, borderColor: c.border }]}
               onPress={() => {
                 setSelectedArmy(army);
                 setSearchQuery('');
                 setShowArmyPicker(false);
               }}
             >
-              <Text style={styles.armyItemText}>{army}</Text>
+              <Text style={[styles.armyItemText, { color: c.text }]}>{army}</Text>
             </TouchableOpacity>
           )}
           contentContainerStyle={styles.listContent}
@@ -227,52 +194,44 @@ export default function AddMiniatureScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: c.background }]}>
       <ScrollView style={styles.scrollView}>
         <View style={styles.form}>
           <View style={styles.selectedArmyContainer}>
             <View>
-              <Text style={styles.label}>Selected Army</Text>
+              <Text style={[styles.label, { color: c.text }]}>Selected Army</Text>
               <Text style={styles.selectedArmyText}>{selectedArmy}</Text>
             </View>
             <TouchableOpacity
               style={styles.changeButton}
-              onPress={() => {
-                setShowArmyPicker(true);
-                setSelectedUnit(null);
-              }}
+              onPress={() => { setShowArmyPicker(true); setSelectedUnit(null); }}
             >
               <Text style={styles.changeButtonText}>Change</Text>
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Search Unit</Text>
+          <Text style={[styles.label, { color: c.text }]}>Search Unit</Text>
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { backgroundColor: c.inputBg, borderColor: c.border, color: c.text }]}
             placeholder="Search for a unit..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor="#bdc3c7"
+            placeholderTextColor={c.placeholder}
           />
 
           {selectedUnit ? (
             <View style={styles.selectedUnitCard}>
-              {/* Already Owned Badge */}
               {existingEntry && (
                 <View style={styles.alreadyOwnedBanner}>
-                  <Text style={styles.alreadyOwnedText}>
-                    ✓ Already Owned: {existingEntry.owned_quantity}x
-                  </Text>
+                  <Text style={styles.alreadyOwnedText}>✓ Already Owned: {existingEntry.owned_quantity}x</Text>
                 </View>
               )}
               <View style={styles.selectedUnitContainer}>
-                {/* Unit Image */}
                 <Image
                   source={{ uri: imageService.getUnitImageUrl(selectedUnit.profile_origin, selectedUnit.name) }}
                   style={styles.selectedUnitImage}
                   resizeMode="cover"
                 />
-                {/* Unit Info */}
                 <View style={styles.selectedUnitInfo}>
                   <View style={styles.selectedUnitHeader}>
                     <Text style={styles.selectedUnitName}>{selectedUnit.name}</Text>
@@ -292,53 +251,49 @@ export default function AddMiniatureScreen() {
                 return (
                   <TouchableOpacity
                     key={unit.model_id}
-                    style={styles.unitItem}
-                    onPress={() => {
-                      setSelectedUnit(unit);
-                      setSearchQuery('');
-                    }}
+                    style={[styles.unitItem, { backgroundColor: c.surface, borderColor: c.border }]}
+                    onPress={() => { setSelectedUnit(unit); setSearchQuery(''); }}
                   >
                     <Image
                       source={{ uri: imageService.getUnitImageUrl(unit.profile_origin, unit.name) }}
-                      style={styles.unitListImage}
+                      style={[styles.unitListImage, { backgroundColor: c.progressBarBg }]}
                       resizeMode="cover"
                     />
                     <View style={styles.unitItemInfo}>
                       <View style={styles.unitNameRow}>
-                        <Text style={styles.unitName}>{unit.name}</Text>
+                        <Text style={[styles.unitName, { color: c.text }]}>{unit.name}</Text>
                         {ownedEntry && (
                           <View style={styles.ownedBadge}>
                             <Text style={styles.ownedBadgeText}>✓ {ownedEntry.owned_quantity}</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={styles.unitType}>{unit.unit_type} • {unit.base_points} pts</Text>
+                      <Text style={[styles.unitType, { color: c.textMuted }]}>{unit.unit_type} • {unit.base_points} pts</Text>
                     </View>
                   </TouchableOpacity>
                 );
               })}
               {filteredUnits.length === 0 && searchQuery && (
-                <Text style={styles.noResults}>No units found</Text>
+                <Text style={[styles.noResults, { color: c.textMuted }]}>No units found</Text>
               )}
             </View>
           )}
 
           {selectedUnit && (
             <>
-              <Text style={styles.label}>Quantity Owned</Text>
+              <Text style={[styles.label, { color: c.text }]}>Quantity Owned</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { backgroundColor: c.inputBg, borderColor: c.border, color: c.text }]}
                 value={owned_quantity}
                 onChangeText={setOwnedQuantity}
                 keyboardType="number-pad"
                 placeholder="1"
-                placeholderTextColor="#bdc3c7"
+                placeholderTextColor={c.placeholder}
               />
 
-              {/* Wargear Options */}
               {selectedUnit.options && selectedUnit.options.length > 0 && (
                 <>
-                  <Text style={styles.label}>
+                  <Text style={[styles.label, { color: c.text }]}>
                     Wargear & Options {selectedUnit.opt_mandatory && '(Required)'}
                   </Text>
                   <View style={styles.optionsContainer}>
@@ -350,11 +305,12 @@ export default function AddMiniatureScreen() {
                           key={option.id}
                           style={[
                             styles.optionItem,
+                            { backgroundColor: c.surface, borderColor: c.border },
                             isSelected && styles.optionItemSelected,
                             isIncluded && styles.optionItemIncluded
                           ]}
                           onPress={() => {
-                            if (isIncluded) return; // Can't toggle included items
+                            if (isIncluded) return;
                             setSelectedOptions(prev =>
                               prev.includes(option.id)
                                 ? prev.filter(id => id !== option.id)
@@ -366,6 +322,7 @@ export default function AddMiniatureScreen() {
                           <View style={styles.optionContent}>
                             <Text style={[
                               styles.optionName,
+                              { color: c.text },
                               (isSelected || isIncluded) && styles.optionNameSelected
                             ]}>
                               {isIncluded ? '✓ ' : ''}{option.name}
@@ -373,13 +330,14 @@ export default function AddMiniatureScreen() {
                             </Text>
                             <Text style={[
                               styles.optionPoints,
+                              { color: c.textMuted },
                               (isSelected || isIncluded) && styles.optionPointsSelected
                             ]}>
                               {option.points > 0 ? `+${option.points}` : option.points} pts
                             </Text>
                           </View>
                           {option.type && (
-                            <Text style={styles.optionType}>{option.type}</Text>
+                            <Text style={[styles.optionType, { color: c.textMuted }]}>{option.type}</Text>
                           )}
                         </TouchableOpacity>
                       );
@@ -392,28 +350,36 @@ export default function AddMiniatureScreen() {
                 </>
               )}
 
-              <Text style={styles.label}>Paint Status</Text>
+              <Text style={[styles.label, { color: c.text }]}>Paint Status</Text>
               <View style={styles.buttonGroup}>
                 {Object.values(PaintStatus).map(status => (
                   <TouchableOpacity
                     key={status}
-                    style={[styles.button, paint_status === status && styles.buttonSelected]}
+                    style={[
+                      styles.button,
+                      { backgroundColor: c.surface, borderColor: c.border },
+                      paint_status === status && styles.buttonSelected
+                    ]}
                     onPress={() => setPaintStatus(status)}
                   >
-                    <Text style={[styles.buttonText, paint_status === status && styles.buttonTextSelected]}>
+                    <Text style={[
+                      styles.buttonText,
+                      { color: c.textMuted },
+                      paint_status === status && styles.buttonTextSelected
+                    ]}>
                       {status}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
 
-              <Text style={styles.label}>Notes (optional)</Text>
+              <Text style={[styles.label, { color: c.text }]}>Notes (optional)</Text>
               <TextInput
-                style={[styles.input, styles.textArea]}
+                style={[styles.input, styles.textArea, { backgroundColor: c.inputBg, borderColor: c.border, color: c.text }]}
                 value={notes}
                 onChangeText={setNotes}
                 placeholder="Any additional notes..."
-                placeholderTextColor="#bdc3c7"
+                placeholderTextColor={c.placeholder}
                 multiline
                 numberOfLines={4}
               />
@@ -434,327 +400,64 @@ export default function AddMiniatureScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#ecf0f1'
-  },
-  scrollView: {
-    flex: 1
-  },
-  header: {
-    backgroundColor: '#2c3e50',
-    padding: 16,
-    paddingTop: 20
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff'
-  },
-  searchContainer: {
-    padding: 16,
-    paddingBottom: 8
-  },
-  form: {
-    padding: 16
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 16
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2c3e50',
-    marginTop: 16,
-    marginBottom: 8
-  },
-  searchInput: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#2c3e50',
-    marginBottom: 8
-  },
-  input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#2c3e50'
-  },
-  textArea: {
-    height: 100,
-    textAlignVertical: 'top'
-  },
-  armyItem: {
-    backgroundColor: '#fff',
-    padding: 16,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd'
-  },
-  armyItemText: {
-    fontSize: 16,
-    color: '#2c3e50',
-    fontWeight: '500'
-  },
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
+  searchContainer: { padding: 16, paddingBottom: 8 },
+  form: { padding: 16 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 16 },
+  label: { fontSize: 16, fontWeight: '600', marginTop: 16, marginBottom: 8 },
+  searchInput: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 8 },
+  input: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16 },
+  textArea: { height: 100, textAlignVertical: 'top' },
+  armyItem: { padding: 16, marginBottom: 8, borderRadius: 8, borderWidth: 1 },
+  armyItemText: { fontSize: 16, fontWeight: '500' },
   selectedArmyContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#3498db',
-    padding: 16,
-    borderRadius: 8,
-    marginTop: 8,
-    marginBottom: 16
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: '#3498db', padding: 16, borderRadius: 8, marginTop: 8, marginBottom: 16
   },
-  selectedArmyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff'
-  },
-  changeButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6
-  },
-  changeButtonText: {
-    color: '#fff',
-    fontWeight: '600'
-  },
-  unitListContainer: {
-    marginBottom: 16
-  },
-  unitItem: {
-    backgroundColor: '#fff',
-    padding: 8,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  unitListImage: {
-    width: 60,
-    height: 72,
-    borderRadius: 4,
-    backgroundColor: '#ecf0f1',
-    marginRight: 12
-  },
-  unitItemInfo: {
-    flex: 1
-  },
-  unitNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4
-  },
-  unitName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#2c3e50',
-    flex: 1
-  },
-  ownedBadge: {
-    backgroundColor: '#f39c12',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    marginLeft: 8
-  },
-  ownedBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 'bold'
-  },
-  unitType: {
-    fontSize: 14,
-    color: '#7f8c8d'
-  },
-  selectedUnitCard: {
-    backgroundColor: '#27ae60',
-    borderRadius: 8,
-    marginBottom: 16,
-    overflow: 'hidden'
-  },
-  alreadyOwnedBanner: {
-    backgroundColor: '#f39c12',
-    padding: 8,
-    alignItems: 'center'
-  },
-  alreadyOwnedText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold'
-  },
-  selectedUnitContainer: {
-    flexDirection: 'row'
-  },
-  selectedUnitImage: {
-    width: 120,
-    height: 140,
-    backgroundColor: '#2ecc71'
-  },
-  selectedUnitInfo: {
-    flex: 1,
-    padding: 16
-  },
-  selectedUnitHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8
-  },
-  selectedUnitName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    flex: 1
-  },
-  clearButton: {
-    fontSize: 24,
-    color: '#fff',
-    fontWeight: 'bold'
-  },
-  selectedUnitDetail: {
-    fontSize: 14,
-    color: '#fff',
-    marginTop: 4
-  },
-  noResults: {
-    textAlign: 'center',
-    color: '#95a5a6',
-    fontSize: 16,
-    marginTop: 20
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
-  },
-  button: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd'
-  },
-  buttonSelected: {
-    backgroundColor: '#e74c3c',
-    borderColor: '#e74c3c'
-  },
-  buttonText: {
-    fontSize: 14,
-    color: '#7f8c8d'
-  },
-  buttonTextSelected: {
-    color: '#fff',
-    fontWeight: '600'
-  },
-  saveButton: {
-    backgroundColor: '#27ae60',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 24
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold'
-  },
-  cancelButton: {
-    backgroundColor: '#95a5a6',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 32
-  },
-  cancelButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  optionsContainer: {
-    marginTop: 8,
-    marginBottom: 16
-  },
-  optionItem: {
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    marginBottom: 8
-  },
-  optionItemSelected: {
-    backgroundColor: '#e8f5e9',
-    borderColor: '#27ae60'
-  },
-  optionItemIncluded: {
-    backgroundColor: '#e3f2fd',
-    borderColor: '#3498db'
-  },
-  optionContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  optionName: {
-    fontSize: 15,
-    color: '#2c3e50',
-    fontWeight: '500',
-    flex: 1
-  },
-  optionNameSelected: {
-    color: '#27ae60',
-    fontWeight: '600'
-  },
-  optionPoints: {
-    fontSize: 14,
-    color: '#7f8c8d',
-    fontWeight: '600',
-    marginLeft: 8
-  },
-  optionPointsSelected: {
-    color: '#27ae60',
-    fontWeight: 'bold'
-  },
-  optionType: {
-    fontSize: 12,
-    color: '#95a5a6',
-    marginTop: 4,
-    fontStyle: 'italic'
-  },
-  totalPointsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#3498db',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 16
-  },
-  totalPointsLabel: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600'
-  },
-  totalPointsValue: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: 'bold'
-  }
+  selectedArmyText: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
+  changeButton: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 },
+  changeButtonText: { color: '#fff', fontWeight: '600' },
+  unitListContainer: { marginBottom: 16 },
+  unitItem: { padding: 8, marginBottom: 8, borderRadius: 8, borderWidth: 1, flexDirection: 'row', alignItems: 'center' },
+  unitListImage: { width: 60, height: 72, borderRadius: 4, marginRight: 12 },
+  unitItemInfo: { flex: 1 },
+  unitNameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  unitName: { fontSize: 16, fontWeight: '600', flex: 1 },
+  ownedBadge: { backgroundColor: '#f39c12', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginLeft: 8 },
+  ownedBadgeText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  unitType: { fontSize: 14 },
+  selectedUnitCard: { backgroundColor: '#27ae60', borderRadius: 8, marginBottom: 16, overflow: 'hidden' },
+  alreadyOwnedBanner: { backgroundColor: '#f39c12', padding: 8, alignItems: 'center' },
+  alreadyOwnedText: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  selectedUnitContainer: { flexDirection: 'row' },
+  selectedUnitImage: { width: 120, height: 140, backgroundColor: '#2ecc71' },
+  selectedUnitInfo: { flex: 1, padding: 16 },
+  selectedUnitHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  selectedUnitName: { fontSize: 18, fontWeight: 'bold', color: '#fff', flex: 1 },
+  clearButton: { fontSize: 24, color: '#fff', fontWeight: 'bold' },
+  selectedUnitDetail: { fontSize: 14, color: '#fff', marginTop: 4 },
+  noResults: { textAlign: 'center', fontSize: 16, marginTop: 20 },
+  buttonGroup: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  button: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1 },
+  buttonSelected: { backgroundColor: '#e74c3c', borderColor: '#e74c3c' },
+  buttonText: { fontSize: 14 },
+  buttonTextSelected: { color: '#fff', fontWeight: '600' },
+  saveButton: { backgroundColor: '#27ae60', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 24 },
+  saveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  cancelButton: { backgroundColor: '#95a5a6', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 12, marginBottom: 32 },
+  cancelButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  optionsContainer: { marginTop: 8, marginBottom: 16 },
+  optionItem: { padding: 12, borderRadius: 8, borderWidth: 2, marginBottom: 8 },
+  optionItemSelected: { backgroundColor: '#e8f5e9', borderColor: '#27ae60' },
+  optionItemIncluded: { backgroundColor: '#e3f2fd', borderColor: '#3498db' },
+  optionContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  optionName: { fontSize: 15, fontWeight: '500', flex: 1 },
+  optionNameSelected: { color: '#27ae60', fontWeight: '600' },
+  optionPoints: { fontSize: 14, fontWeight: '600', marginLeft: 8 },
+  optionPointsSelected: { color: '#27ae60', fontWeight: 'bold' },
+  optionType: { fontSize: 12, marginTop: 4, fontStyle: 'italic' },
+  totalPointsContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#3498db', padding: 16, borderRadius: 8, marginBottom: 16 },
+  totalPointsLabel: { fontSize: 16, color: '#fff', fontWeight: '600' },
+  totalPointsValue: { fontSize: 20, color: '#fff', fontWeight: 'bold' }
 });
