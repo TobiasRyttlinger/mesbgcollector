@@ -114,10 +114,6 @@ export default function EditMiniatureScreen() {
             <Text style={[styles.previewName, { color: c.text }]}>{item.unit_data?.name || 'Unknown Unit'}</Text>
             <Text style={[styles.previewDetail, { color: c.textMuted }]}>{item.army_name}</Text>
             <Text style={[styles.previewDetail, { color: c.textMuted }]}>{item.unit_type}</Text>
-            <Text style={styles.previewPoints}>
-              {item.total_points} pts/model
-              {item.selected_options && item.selected_options.length > 0 && ' (w/ gear)'}
-            </Text>
           </View>
         </View>
 
