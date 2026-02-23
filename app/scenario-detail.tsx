@@ -1,15 +1,16 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { PaintStatus, createCollectionItem } from '../src/models/Collection';
 import { useTheme } from '../src/contexts/ThemeContext';
-import { mesbgDataService } from '../src/services/mesbgDataService';
-import { MesbgUnit } from '../src/types/mesbg-data.types';
+import scenariosRolesData from '../src/data/scenarios_roles_without_legacy.json';
+import { PaintStatus, createCollectionItem } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
-import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
+import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
+import { mesbgDataService } from '../src/services/mesbgDataService';
 import { scenarioService } from '../src/services/scenarioService';
+import { MesbgUnit } from '../src/types/mesbg-data.types';
 import { AGE_LABELS, LOCATION_LABELS } from '../src/types/scenario.types';
-import scenariosRolesData from '../src/data/scenarios_roles.json';
+import { collectionItemMatchesRole, extractEquipment, findOptionIdForEquipment, findUnitForRoleDebug } from '../src/utils/scenarioRoleMatching';
 
 interface Figure {
   figure_id: number;
@@ -47,100 +48,6 @@ interface FactionCheck {
 // Bundled offline role data: scenario id (string) → faction array
 const rolesLookup = scenariosRolesData as Record<string, DetailedFaction[]>;
 
-/** Strip variant suffixes like "(plastic)", "(White Council)" from figure names */
-function stripVariant(name: string): string {
-  return name.replace(/\s*\([^)]*\)\s*/g, '').trim().toLowerCase();
-}
-
-/** Strip " with [equipment]" suffixes so "Warriors of Minas Tirith with Shield"
- *  matches the database entry "Warriors of Minas Tirith" */
-function stripEquipment(name: string): string {
-  return name.replace(/\s+with\s+[\w\s,&]+$/i, '').trim().toLowerCase();
-}
-
-/** Extract just the equipment part from "Name with Equipment" → "Equipment" (or null) */
-function extractEquipment(name: string): string | null {
-  const m = name.match(/\s+with\s+([\w\s,&]+)$/i);
-  return m ? m[1].trim() : null;
-}
-
-/** Normalise equipment words for comparison: lowercase, split, remove stop words, sort */
-function normalizeEquipWords(s: string): string[] {
-  return s.toLowerCase().split(/[\s,&]+/).filter(w => w.length > 1 && w !== 'and').sort();
-}
-
-/** True when two sorted word-arrays are identical */
-function wordsEqual(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-/** True when the item has an option selected whose name matches the equipment string exactly */
-function itemHasEquipment(item: CollectionItemView, equipment: string): boolean {
-  const eqWords = normalizeEquipWords(equipment);
-  return (item.unit_data?.options ?? []).some(opt =>
-    (item.selected_options ?? []).includes(opt.id) &&
-    wordsEqual(normalizeEquipWords(opt.name), eqWords)
-  );
-}
-
-/** True when a collection item satisfies a role requirement (name + optional equipment) */
-function collectionItemMatchesRole(item: CollectionItemView, role: Role): boolean {
-  const unitName = item.unit_data?.name ?? item.display_name;
-  const unitLower = unitName.toLowerCase();
-  const unitStripped = stripVariant(unitName);
-
-  for (const fig of role.figures) {
-    const equip = extractEquipment(fig.name);
-    const base = equip !== null ? stripEquipment(fig.name) : fig.name.toLowerCase();
-    const baseStripped = stripVariant(base);
-    if (unitLower === fig.name.toLowerCase() || unitLower === base || unitStripped === baseStripped) {
-      if (equip === null || itemHasEquipment(item, equip)) return true;
-    }
-  }
-
-  const roleEquip = extractEquipment(role.name);
-  const roleBase = roleEquip !== null ? stripEquipment(role.name) : role.name.toLowerCase();
-  const roleBaseStripped = stripVariant(roleBase);
-  if (unitLower === role.name.toLowerCase() || unitLower === roleBase || unitStripped === roleBaseStripped) {
-    if (roleEquip === null || itemHasEquipment(item, roleEquip)) return true;
-  }
-
-  return false;
-}
-
-/** Find the option ID whose name exactly matches an equipment string, for pre-selection */
-function findOptionIdForEquipment(unit: MesbgUnit, equipment: string): string | undefined {
-  const eqWords = normalizeEquipWords(equipment);
-  return unit.options.find(opt => wordsEqual(normalizeEquipWords(opt.name), eqWords))?.id;
-}
-
-/** Find the best matching MesbgUnit for a role, using figure names or role name as fallback */
-function findUnitForRole(role: Role): MesbgUnit | undefined {
-  const allUnits = mesbgDataService.getAllUnits();
-  // Try each figure name first
-  for (const fig of role.figures) {
-    const stripped = stripVariant(fig.name);
-    const strippedEquip = stripEquipment(fig.name);
-    const match = allUnits.find(u =>
-      u.name.toLowerCase() === fig.name.toLowerCase() ||
-      stripVariant(u.name) === stripped ||
-      u.name.toLowerCase() === strippedEquip ||
-      stripVariant(u.name) === strippedEquip
-    );
-    if (match) return match;
-  }
-  // Fall back to role name
-  const roleLower = role.name.toLowerCase();
-  const roleStripped = stripVariant(role.name);
-  const roleStrippedEquip = stripEquipment(role.name);
-  return allUnits.find(u =>
-    u.name.toLowerCase() === roleLower ||
-    stripVariant(u.name) === roleStripped ||
-    u.name.toLowerCase() === roleStrippedEquip ||
-    stripVariant(u.name) === roleStrippedEquip
-  );
-}
-
 function checkFactions(
   factions: DetailedFaction[],
   collection: CollectionItemView[]
@@ -176,8 +83,10 @@ export default function ScenarioDetailScreen() {
   const [addPaintStatus, setAddPaintStatus] = useState<PaintStatus>(PaintStatus.UNPAINTED);
   const [addSelectedOptions, setAddSelectedOptions] = useState<string[]>([]);
   const [addSaving, setAddSaving] = useState(false);
+  const [addSearchDebug, setAddSearchDebug] = useState('');
 
   const scenario = useMemo(() => scenarioService.getById(Number(id)), [id]);
+  const allUnits = useMemo(() => mesbgDataService.getAllUnits(), []);
 
   // Factions come from the bundled JSON — no network call needed
   const factions: DetailedFaction[] = useMemo(
@@ -205,9 +114,11 @@ export default function ScenarioDetailScreen() {
   const overallCanPlay = factionChecks.length > 0 && factionChecks.some(fc => fc.allSatisfied);
 
   const openAddModal = (role: Role) => {
-    const unit = findUnitForRole(role);
+    const lookup = findUnitForRoleDebug(role, allUnits);
+    const unit = lookup.unit;
     setAddingRole(role);
     setAddingUnit(unit ?? null);
+    setAddSearchDebug(`Search source: "${lookup.sourceName}"  ->  base query: "${lookup.baseQuery}"`);
     setAddQty(String(role.amount));
     setAddPaintStatus(PaintStatus.UNPAINTED);
     // Pre-select the equipment option if the role specifies one
@@ -229,6 +140,7 @@ export default function ScenarioDetailScreen() {
     setAddingRole(null);
     setAddingUnit(null);
     setAddSelectedOptions([]);
+    setAddSearchDebug('');
   };
 
   const handleQuickAdd = async () => {
@@ -413,6 +325,9 @@ export default function ScenarioDetailScreen() {
               <Text style={{ color: '#e74c3c', fontSize: 12 }}>{'\n'}(no exact match in database)</Text>
             )}
           </Text>
+          <Text style={[styles.modalDebugText, { color: c.textMuted }]}>
+            {addSearchDebug}
+          </Text>
 
           <Text style={[styles.modalLabel, { color: c.textMuted }]}>Quantity</Text>
           <TextInput
@@ -538,6 +453,7 @@ const styles = StyleSheet.create({
   modalSheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 40 },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
   modalUnitName: { fontSize: 15, marginBottom: 16 },
+  modalDebugText: { fontSize: 12, marginBottom: 6, fontStyle: 'italic' },
   modalLabel: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
   modalInput: { borderWidth: 1, borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 4 },
   paintRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
@@ -551,3 +467,4 @@ const styles = StyleSheet.create({
   modalSave: { flex: 2, padding: 14, borderRadius: 8, backgroundColor: '#27ae60', alignItems: 'center' },
   modalSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
+

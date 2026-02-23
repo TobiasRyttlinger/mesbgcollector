@@ -11,12 +11,13 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { PaintStatus, createCollectionItem, CollectionItem } from '../src/models/Collection';
+import { PaintStatus, createCollectionItem, CollectionItem, isFullyPaintedStatus } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { mesbgDataService } from '../src/services/mesbgDataService';
 import { imageService } from '../src/services/imageService';
 import { MesbgUnit } from '../src/types/mesbg-data.types';
 import { useTheme } from '../src/contexts/ThemeContext';
+import { canonicalizeUnitName } from '../src/utils/unitNameAliases';
 
 export default function AddMiniatureScreen() {
   const router = useRouter();
@@ -46,14 +47,14 @@ export default function AddMiniatureScreen() {
     const map = new Map<string, CollectionItem>();
     existingCollection.forEach(item => {
       const unit = mesbgDataService.getUnit(item.model_id);
-      if (unit) map.set(unit.name.toLowerCase(), item);
+      if (unit) map.set(canonicalizeUnitName(unit.name), item);
     });
     return map;
   }, [existingCollection]);
 
   const existingEntry = useMemo(() => {
     if (!selectedUnit) return null;
-    return ownedByName.get(selectedUnit.name.toLowerCase()) ?? null;
+    return ownedByName.get(canonicalizeUnitName(selectedUnit.name)) ?? null;
   }, [selectedUnit, ownedByName]);
 
   // Search all units, deduplicated by name + options fingerprint.
@@ -101,7 +102,16 @@ export default function AddMiniatureScreen() {
           {
             text: 'Add to Existing',
             onPress: async () => {
-              const updatedItem = { ...existingEntry, owned_quantity: existingEntry.owned_quantity + qty };
+              const nextOwned = existingEntry.owned_quantity + qty;
+              const nextPainted = isFullyPaintedStatus(paint_status)
+                ? existingEntry.painted_quantity + qty
+                : existingEntry.painted_quantity;
+              const updatedItem = {
+                ...existingEntry,
+                owned_quantity: nextOwned,
+                painted_quantity: Math.min(nextPainted, nextOwned),
+                paint_status: isFullyPaintedStatus(paint_status) ? paint_status : existingEntry.paint_status
+              };
               try {
                 await collectionStorage.updateItem(existingEntry.id, updatedItem);
                 await loadExistingCollection();
@@ -179,7 +189,7 @@ export default function AddMiniatureScreen() {
                 keyExtractor={u => u.model_id}
                 scrollEnabled={false}
                 renderItem={({ item: unit }) => {
-                  const ownedEntry = ownedByName.get(unit.name.toLowerCase());
+                  const ownedEntry = ownedByName.get(canonicalizeUnitName(unit.name));
                   return (
                     <TouchableOpacity
                       style={[styles.unitItem, { backgroundColor: c.surface, borderColor: c.border }]}

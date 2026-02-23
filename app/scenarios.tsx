@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -13,65 +14,62 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
-import scenariosRolesData from '../src/data/scenarios_roles.json';
+import scenariosRolesData from '../src/data/scenarios_roles_without_legacy.json';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
+import { mesbgDataService } from '../src/services/mesbgDataService';
 import { scenarioService } from '../src/services/scenarioService';
+import { MesbgUnit } from '../src/types/mesbg-data.types';
 import { AGE_LABELS, LOCATION_LABELS, Scenario } from '../src/types/scenario.types';
+import { collectionItemMatchesRole, findUnitForRole } from '../src/utils/scenarioRoleMatching';
 
 const rolesLookup = scenariosRolesData as Record<string, any[]>;
+let knownUnitScenarioIdsCache: Set<number> | null = null;
+let knownUnitScenarioIdsBuildPromise: Promise<Set<number>> | null = null;
+let knownUnitScenarioBuildProgress = 0;
 
-function stripVariant(name: string): string {
-  return name.replace(/\s*\([^)]*\)\s*/g, '').trim().toLowerCase();
-}
+function buildKnownUnitScenarioIds(allUnits: MesbgUnit[]): Promise<Set<number>> {
+  if (knownUnitScenarioIdsCache) return Promise.resolve(knownUnitScenarioIdsCache);
+  if (knownUnitScenarioIdsBuildPromise) return knownUnitScenarioIdsBuildPromise;
 
-function stripEquipment(name: string): string {
-  return name.replace(/\s+with\s+[\w\s,&]+$/i, '').trim().toLowerCase();
-}
+  knownUnitScenarioIdsBuildPromise = new Promise(resolve => {
+    const scenarios = scenarioService.getAll();
+    const known = new Set<number>();
+    let idx = 0;
+    const batchSize = 12;
+    knownUnitScenarioBuildProgress = 0;
 
-function extractEquipment(name: string): string | null {
-  const m = name.match(/\s+with\s+([\w\s,&]+)$/i);
-  return m ? m[1].trim() : null;
-}
+    const runBatch = () => {
+      const end = Math.min(idx + batchSize, scenarios.length);
+      for (; idx < end; idx++) {
+        const s = scenarios[idx];
+        const factions = (rolesLookup[String(s.id)] ?? []).filter((f: any) => (f.roles ?? []).length > 0);
+        if (factions.length === 0) continue;
+        const hasUnknown = factions.some((faction: any) =>
+          (faction.roles as any[]).some((role: any) => !findUnitForRole(role, allUnits))
+        );
+        if (!hasUnknown) known.add(s.id);
+      }
+      knownUnitScenarioBuildProgress = Math.min(100, Math.round((idx / scenarios.length) * 100));
 
-function normalizeEquipWords(s: string): string[] {
-  return s.toLowerCase().split(/[\s,&]+/).filter(w => w.length > 1 && w !== 'and').sort();
-}
+      if (idx < scenarios.length) {
+        setTimeout(runBatch, 0);
+      } else {
+        knownUnitScenarioIdsCache = known;
+        knownUnitScenarioIdsBuildPromise = null;
+        knownUnitScenarioBuildProgress = 100;
+        resolve(known);
+      }
+    };
 
-function wordsEqual(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
+    setTimeout(runBatch, 0);
+  });
 
-function itemHasEquipment(item: CollectionItemView, equipment: string): boolean {
-  const eqWords = normalizeEquipWords(equipment);
-  return (item.unit_data?.options ?? []).some(opt =>
-    (item.selected_options ?? []).includes(opt.id) &&
-    wordsEqual(normalizeEquipWords(opt.name), eqWords)
-  );
+  return knownUnitScenarioIdsBuildPromise;
 }
 
 function itemMatchesRoleData(item: CollectionItemView, role: any): boolean {
-  const unitName = item.unit_data?.name ?? item.display_name;
-  const unitLower = unitName.toLowerCase();
-  const unitStripped = stripVariant(unitName);
-
-  for (const fig of (role.figures ?? []) as any[]) {
-    const equip = extractEquipment(fig.name);
-    const base = equip !== null ? stripEquipment(fig.name) : fig.name.toLowerCase();
-    const baseStripped = stripVariant(base);
-    if (unitLower === fig.name.toLowerCase() || unitLower === base || unitStripped === baseStripped) {
-      if (equip === null || itemHasEquipment(item, equip)) return true;
-    }
-  }
-
-  const roleEquip = extractEquipment(role.name);
-  const roleBase = roleEquip !== null ? stripEquipment(role.name) : role.name.toLowerCase();
-  const roleBaseStripped = stripVariant(roleBase);
-  if (unitLower === role.name.toLowerCase() || unitLower === roleBase || unitStripped === roleBaseStripped) {
-    if (roleEquip === null || itemHasEquipment(item, roleEquip)) return true;
-  }
-
-  return false;
+  return collectionItemMatchesRole(item, role);
 }
 
 function getPlayStatus(scenarioId: number, collection: CollectionItemView[]): 'full' | 'partial' | 'none' {
@@ -101,13 +99,17 @@ export default function ScenariosScreen() {
   const c = theme.colors;
 
   const [search, setSearch] = useState('');
-  const [selectedBook, setSelectedBook] = useState('All');
+  const [selectedBooks, setSelectedBooks] = useState<string[]>([]);
   const [showPlayable, setShowPlayable] = useState(false);
+  const [showLegacy, setShowLegacy] = useState(false);
+  const [hideUnknownUnits, setHideUnknownUnits] = useState(false);
   const [groupByAge, setGroupByAge] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [collection, setCollection] = useState<CollectionItemView[]>([]);
+  const [knownUnitScenarioIds, setKnownUnitScenarioIds] = useState<Set<number> | null>(knownUnitScenarioIdsCache);
+  const [knownUnitsProgress, setKnownUnitsProgress] = useState(knownUnitScenarioBuildProgress);
 
-  const bookFiltered = selectedBook !== 'All';
+  const bookFiltered = selectedBooks.length > 0;
 
   useFocusEffect(useCallback(() => {
     collectionStorage.loadCollection().then(col => {
@@ -115,7 +117,29 @@ export default function ScenariosScreen() {
     });
   }, []));
 
-  const books = useMemo(() => ['All', ...scenarioService.getSourcebooks()], []);
+  const books = useMemo(() => scenarioService.getSourcebooks(), []);
+  const allUnits = useMemo(() => mesbgDataService.getAllUnits(), []);
+
+  useEffect(() => {
+    if (knownUnitScenarioIds) return;
+    let cancelled = false;
+    const progressTimer = setInterval(() => {
+      if (!cancelled) setKnownUnitsProgress(knownUnitScenarioBuildProgress);
+    }, 100);
+    buildKnownUnitScenarioIds(allUnits).then(known => {
+      if (!cancelled) {
+        setKnownUnitScenarioIds(known);
+        setKnownUnitsProgress(100);
+      }
+    });
+    return () => {
+      cancelled = true;
+      clearInterval(progressTimer);
+    };
+  }, [allUnits, knownUnitScenarioIds]);
+
+  const isLegacyScenario = (scenario: Scenario) =>
+    scenario.sources.some(src => src.title.toLowerCase().includes('bgime'));
 
   const playabilityMap = useMemo(() => {
     const map = new Map<number, 'full' | 'partial' | 'none'>();
@@ -138,18 +162,27 @@ export default function ScenariosScreen() {
       ? scenarioService.search(search)
       : scenarioService.getAll();
 
-    if (selectedBook !== 'All') {
-      list = list.filter(s => s.sources.some(src => src.title === selectedBook));
+    if (selectedBooks.length > 0) {
+      list = list.filter(s => s.sources.some(src => selectedBooks.includes(src.title)));
     }
 
     if (showPlayable) {
       list = list.filter(s => playableIds.has(s.id));
     }
 
+    if (!showLegacy) {
+      list = list.filter(s => !isLegacyScenario(s));
+    }
+
+    if (hideUnknownUnits && knownUnitScenarioIds) {
+      list = list.filter(s => knownUnitScenarioIds.has(s.id));
+    }
+
     return list;
-  }, [search, selectedBook, showPlayable, playableIds]);
+  }, [search, selectedBooks, showPlayable, showLegacy, hideUnknownUnits, playableIds, knownUnitScenarioIds]);
 
   const playableCount = playableIds.size;
+  const activeFilterCount = selectedBooks.length + (showPlayable ? 1 : 0) + (showLegacy ? 1 : 0) + (hideUnknownUnits ? 1 : 0);
 
   const AGE_ORDER = [3, 2, 1, 0] as const;
   const AGE_SECTION_LABELS: Record<number, string> = { 3: 'Third Age', 2: 'Second Age', 1: 'First Age', 0: 'Unknown' };
@@ -239,6 +272,17 @@ export default function ScenariosScreen() {
     );
   };
 
+  if (!knownUnitScenarioIds) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: c.background }]}>
+        <ActivityIndicator size="large" color="#3498db" />
+        <Text style={[styles.loadingText, { color: c.textMuted }]}>
+          Preparing scenario filters... {knownUnitsProgress}%
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
       {/* Search */}
@@ -252,7 +296,7 @@ export default function ScenariosScreen() {
         />
       </View>
 
-      {/* Stats + toggles */}
+      {/* Stats + filters */}
       <View style={[styles.statsRow, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
         <View style={styles.statItem}>
           <Text style={[styles.statNum, { color: c.text }]}>{filtered.length}</Text>
@@ -264,19 +308,11 @@ export default function ScenariosScreen() {
         </View>
         <View style={styles.toggleGroup}>
           <TouchableOpacity
-            style={[styles.toggleBtn, { borderColor: showPlayable ? '#27ae60' : c.border, backgroundColor: showPlayable ? '#27ae60' : c.surface }]}
-            onPress={() => setShowPlayable(v => !v)}
-          >
-            <Text style={[styles.toggleText, { color: showPlayable ? '#fff' : c.text }]}>
-              {showPlayable ? '✓ Playable' : 'Playable'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleBtn, { borderColor: bookFiltered ? '#8e44ad' : c.border, backgroundColor: bookFiltered ? '#8e44ad' : c.surface }]}
+            style={[styles.toggleBtn, { borderColor: activeFilterCount > 0 ? '#8e44ad' : c.border, backgroundColor: activeFilterCount > 0 ? '#8e44ad' : c.surface }]}
             onPress={() => setFilterModalVisible(true)}
           >
-            <Text style={[styles.toggleText, { color: bookFiltered ? '#fff' : c.text }]} numberOfLines={1}>
-              {bookFiltered ? selectedBook : 'Sourcebook'}
+            <Text style={[styles.toggleText, { color: activeFilterCount > 0 ? '#fff' : c.text }]} numberOfLines={1}>
+              {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -292,10 +328,10 @@ export default function ScenariosScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => setFilterModalVisible(false)} />
         <View style={[styles.modalSheet, { backgroundColor: c.surface }]}>
           <View style={[styles.modalHeader, { borderBottomColor: c.border }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Sourcebook</Text>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Filters</Text>
             <View style={styles.modalHeaderActions}>
-              {bookFiltered && (
-                <TouchableOpacity onPress={() => setSelectedBook('All')}>
+              {(bookFiltered || showPlayable || showLegacy || hideUnknownUnits) && (
+                <TouchableOpacity onPress={() => { setSelectedBooks([]); setShowPlayable(false); setShowLegacy(false); setHideUnknownUnits(false); }}>
                   <Text style={styles.clearAll}>Clear</Text>
                 </TouchableOpacity>
               )}
@@ -305,6 +341,58 @@ export default function ScenariosScreen() {
             </View>
           </View>
 
+          <View style={styles.filterToggles}>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                { backgroundColor: c.filterChipBg, borderColor: c.border },
+                showPlayable && styles.filterChipSelected
+              ]}
+              onPress={() => setShowPlayable(v => !v)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: c.textMuted },
+                showPlayable && styles.filterChipTextSelected
+              ]}>
+                {showPlayable ? '✓ Playable' : 'Playable'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                { backgroundColor: c.filterChipBg, borderColor: c.border },
+                showLegacy && styles.filterChipBookSelected
+              ]}
+              onPress={() => setShowLegacy(v => !v)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: c.textMuted },
+                showLegacy && styles.filterChipTextSelected
+              ]}>
+                {showLegacy ? '✓ Legacy' : 'Legacy'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                { backgroundColor: c.filterChipBg, borderColor: c.border },
+                hideUnknownUnits && styles.filterChipSelected
+              ]}
+              onPress={() => setHideUnknownUnits(v => !v)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: c.textMuted },
+                hideUnknownUnits && styles.filterChipTextSelected
+              ]}>
+                {hideUnknownUnits ? '✓ Known Units Only' : 'Known Units Only'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.modalSectionLabel, { color: c.textMuted }]}>Sourcebooks</Text>
           <ScrollView contentContainerStyle={styles.bookGrid}>
             {books.map(book => (
               <TouchableOpacity
@@ -312,16 +400,20 @@ export default function ScenariosScreen() {
                 style={[
                   styles.filterChip,
                   { backgroundColor: c.filterChipBg, borderColor: c.border },
-                  selectedBook === book && styles.filterChipBookSelected,
+                  selectedBooks.includes(book) && styles.filterChipBookSelected,
                 ]}
-                onPress={() => setSelectedBook(book)}
+                onPress={() => {
+                  setSelectedBooks(prev =>
+                    prev.includes(book) ? prev.filter(b => b !== book) : [...prev, book]
+                  );
+                }}
               >
                 <Text style={[
                   styles.filterChipText,
                   { color: c.textMuted },
-                  selectedBook === book && styles.filterChipTextSelected,
+                  selectedBooks.includes(book) && styles.filterChipTextSelected,
                 ]}>
-                  {book === 'All' ? 'All Books' : book}
+                  {selectedBooks.includes(book) ? `✓ ${book}` : book}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -361,6 +453,8 @@ export default function ScenariosScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText: { fontSize: 15, fontWeight: '500' },
   container: { flex: 1 },
   searchBar: { padding: 12, borderBottomWidth: 1 },
   searchInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15 },
@@ -411,6 +505,8 @@ const styles = StyleSheet.create({
   clearAll: { fontSize: 14, color: '#e74c3c', fontWeight: '600' },
   doneBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16 },
   doneBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  filterToggles: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 14 },
   modalSectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
   bookGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 8 },
 });
+

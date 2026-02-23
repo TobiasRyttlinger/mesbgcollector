@@ -22,6 +22,9 @@ export interface CollectionItem {
   selected_options?: string[]; // Array of option IDs from unit's options
 }
 
+export const isFullyPaintedStatus = (status: PaintStatus): boolean =>
+  status === PaintStatus.PAINTED || status === PaintStatus.BASED;
+
 export const createCollectionItem = (
   model_id: string,
   owned_quantity: number = 1,
@@ -29,11 +32,12 @@ export const createCollectionItem = (
   notes?: string,
   selected_options?: string[]
 ): CollectionItem => {
+  const safeOwned = Math.max(0, owned_quantity);
   return {
     id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
     model_id,
-    owned_quantity,
-    painted_quantity: 0,
+    owned_quantity: safeOwned,
+    painted_quantity: isFullyPaintedStatus(paint_status) ? safeOwned : 0,
     paint_status,
     notes,
     date_added: new Date().toISOString(),

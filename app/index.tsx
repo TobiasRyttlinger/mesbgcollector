@@ -2,7 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
-import { PaintStatus } from '../src/models/Collection';
+import { PaintStatus, isFullyPaintedStatus } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
 
@@ -62,7 +62,11 @@ export default function InventoryScreen() {
             const col = await collectionStorage.loadCollection();
             const found = col.find(c => c.id === item.id);
             if (found) {
-              await collectionStorage.updateItem(item.id, { ...found, paint_status: status });
+              await collectionStorage.updateItem(item.id, {
+                ...found,
+                paint_status: status,
+                painted_quantity: isFullyPaintedStatus(status) ? found.owned_quantity : found.painted_quantity
+              });
               loadCollection();
             }
           }
