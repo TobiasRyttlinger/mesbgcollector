@@ -1,8 +1,12 @@
-import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
+  Modal,
+  Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -10,18 +14,64 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
+import scenariosCombinedData from '../src/data/mesbg_scenarios_with_roles_names_matched.json';
 import { collectionStorage } from '../src/services/collectionStorage';
-import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
+import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
+import { mesbgDataService } from '../src/services/mesbgDataService';
 import { scenarioService } from '../src/services/scenarioService';
-import { Scenario, AGE_LABELS, LOCATION_LABELS } from '../src/types/scenario.types';
-import { useFocusEffect } from 'expo-router';
-import { useCallback } from 'react';
-import scenariosRolesData from '../src/data/scenarios_roles.json';
+import { MesbgUnit } from '../src/types/mesbg-data.types';
+import { AGE_LABELS, LOCATION_LABELS, Scenario } from '../src/types/scenario.types';
+import { collectionItemMatchesRole, findUnitForRole } from '../src/utils/scenarioRoleMatching';
 
-const rolesLookup = scenariosRolesData as Record<string, any[]>;
+const rolesLookup = Object.fromEntries(
+  (((scenariosCombinedData as any).data ?? []) as any[]).map(s => [String(s.id), s.scenario_factions ?? []])
+) as Record<string, any[]>;
+let knownUnitScenarioIdsCache: Set<number> | null = null;
+let knownUnitScenarioIdsBuildPromise: Promise<Set<number>> | null = null;
+let knownUnitScenarioBuildProgress = 0;
 
-function stripVariant(name: string): string {
-  return name.replace(/\s*\([^)]*\)\s*/g, '').trim().toLowerCase();
+function buildKnownUnitScenarioIds(allUnits: MesbgUnit[]): Promise<Set<number>> {
+  if (knownUnitScenarioIdsCache) return Promise.resolve(knownUnitScenarioIdsCache);
+  if (knownUnitScenarioIdsBuildPromise) return knownUnitScenarioIdsBuildPromise;
+
+  knownUnitScenarioIdsBuildPromise = new Promise(resolve => {
+    const scenarios = scenarioService.getAll();
+    const known = new Set<number>();
+    let idx = 0;
+    const batchSize = 12;
+    knownUnitScenarioBuildProgress = 0;
+
+    const runBatch = () => {
+      const end = Math.min(idx + batchSize, scenarios.length);
+      for (; idx < end; idx++) {
+        const s = scenarios[idx];
+        const factions = (rolesLookup[String(s.id)] ?? []).filter((f: any) => (f.roles ?? []).length > 0);
+        if (factions.length === 0) continue;
+        const hasUnknown = factions.some((faction: any) =>
+          (faction.roles as any[]).some((role: any) => !findUnitForRole(role, allUnits))
+        );
+        if (!hasUnknown) known.add(s.id);
+      }
+      knownUnitScenarioBuildProgress = Math.min(100, Math.round((idx / scenarios.length) * 100));
+
+      if (idx < scenarios.length) {
+        setTimeout(runBatch, 0);
+      } else {
+        knownUnitScenarioIdsCache = known;
+        knownUnitScenarioIdsBuildPromise = null;
+        knownUnitScenarioBuildProgress = 100;
+        resolve(known);
+      }
+    };
+
+    setTimeout(runBatch, 0);
+  });
+
+  return knownUnitScenarioIdsBuildPromise;
+}
+
+function itemMatchesRoleData(item: CollectionItemView, role: any): boolean {
+  return collectionItemMatchesRole(item, role);
 }
 
 function getPlayStatus(scenarioId: number, collection: CollectionItemView[]): 'full' | 'partial' | 'none' {
@@ -31,20 +81,9 @@ function getPlayStatus(scenarioId: number, collection: CollectionItemView[]): 'f
   let satisfiedCount = 0;
   factions.forEach((faction: any) => {
     const allMet = (faction.roles as any[]).every((role: any) => {
-      const acceptedNames = new Set<string>();
-      (role.figures ?? []).forEach((fig: any) => {
-        acceptedNames.add(stripVariant(fig.name));
-        acceptedNames.add(fig.name.toLowerCase());
-      });
-      acceptedNames.add(role.name.toLowerCase());
-      acceptedNames.add(stripVariant(role.name));
       let owned = 0;
       collection.forEach(item => {
-        const itemName = (item.unit_data?.name ?? item.display_name).toLowerCase();
-        const itemStripped = stripVariant(item.unit_data?.name ?? item.display_name);
-        if (acceptedNames.has(itemName) || acceptedNames.has(itemStripped)) {
-          owned += item.owned_quantity;
-        }
+        if (itemMatchesRoleData(item, role)) owned += item.owned_quantity;
       });
       return owned >= role.amount;
     });
@@ -62,9 +101,17 @@ export default function ScenariosScreen() {
   const c = theme.colors;
 
   const [search, setSearch] = useState('');
-  const [selectedLocation, setSelectedLocation] = useState('All');
+  const [selectedBooks, setSelectedBooks] = useState<string[]>([]);
   const [showPlayable, setShowPlayable] = useState(false);
+  const [showLegacy, setShowLegacy] = useState(false);
+  const [hideUnknownUnits, setHideUnknownUnits] = useState(false);
+  const [groupByAge, setGroupByAge] = useState(false);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [collection, setCollection] = useState<CollectionItemView[]>([]);
+  const [knownUnitScenarioIds, setKnownUnitScenarioIds] = useState<Set<number> | null>(knownUnitScenarioIdsCache);
+  const [knownUnitsProgress, setKnownUnitsProgress] = useState(knownUnitScenarioBuildProgress);
+
+  const bookFiltered = selectedBooks.length > 0;
 
   useFocusEffect(useCallback(() => {
     collectionStorage.loadCollection().then(col => {
@@ -72,9 +119,29 @@ export default function ScenariosScreen() {
     });
   }, []));
 
-  const locations = useMemo(() => {
-    return ['All', ...scenarioService.getLocations()];
-  }, []);
+  const books = useMemo(() => scenarioService.getSourcebooks(), []);
+  const allUnits = useMemo(() => mesbgDataService.getAllUnits(), []);
+
+  useEffect(() => {
+    if (knownUnitScenarioIds) return;
+    let cancelled = false;
+    const progressTimer = setInterval(() => {
+      if (!cancelled) setKnownUnitsProgress(knownUnitScenarioBuildProgress);
+    }, 100);
+    buildKnownUnitScenarioIds(allUnits).then(known => {
+      if (!cancelled) {
+        setKnownUnitScenarioIds(known);
+        setKnownUnitsProgress(100);
+      }
+    });
+    return () => {
+      cancelled = true;
+      clearInterval(progressTimer);
+    };
+  }, [allUnits, knownUnitScenarioIds]);
+
+  const isLegacyScenario = (scenario: Scenario) =>
+    scenario.sources.some(src => src.title.toLowerCase().includes('bgime'));
 
   const playabilityMap = useMemo(() => {
     const map = new Map<number, 'full' | 'partial' | 'none'>();
@@ -97,18 +164,43 @@ export default function ScenariosScreen() {
       ? scenarioService.search(search)
       : scenarioService.getAll();
 
-    if (selectedLocation !== 'All') {
-      list = list.filter(s => s.location === selectedLocation);
+    if (selectedBooks.length > 0) {
+      list = list.filter(s => s.sources.some(src => selectedBooks.includes(src.title)));
     }
 
     if (showPlayable) {
       list = list.filter(s => playableIds.has(s.id));
     }
 
+    if (!showLegacy) {
+      list = list.filter(s => !isLegacyScenario(s));
+    }
+
+    if (hideUnknownUnits && knownUnitScenarioIds) {
+      list = list.filter(s => knownUnitScenarioIds.has(s.id));
+    }
+
     return list;
-  }, [search, selectedLocation, showPlayable, playableIds]);
+  }, [search, selectedBooks, showPlayable, showLegacy, hideUnknownUnits, playableIds, knownUnitScenarioIds]);
 
   const playableCount = playableIds.size;
+  const activeFilterCount = selectedBooks.length + (showPlayable ? 1 : 0) + (showLegacy ? 1 : 0) + (hideUnknownUnits ? 1 : 0);
+
+  const AGE_ORDER = [3, 2, 1, 0] as const;
+  const AGE_SECTION_LABELS: Record<number, string> = { 3: 'Third Age', 2: 'Second Age', 1: 'First Age', 0: 'Unknown' };
+
+  const sections = useMemo(() => {
+    if (!groupByAge) return [];
+    const groups = new Map<number, Scenario[]>();
+    filtered.forEach(s => {
+      const age = s.date_age ?? 0;
+      if (!groups.has(age)) groups.set(age, []);
+      groups.get(age)!.push(s);
+    });
+    return AGE_ORDER
+      .filter(age => groups.has(age))
+      .map(age => ({ title: AGE_SECTION_LABELS[age], data: groups.get(age)! }));
+  }, [filtered, groupByAge]);
 
   const formatDate = (s: Scenario) => {
     const age = AGE_LABELS[s.date_age] ?? '';
@@ -182,6 +274,17 @@ export default function ScenariosScreen() {
     );
   };
 
+  if (!knownUnitScenarioIds) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: c.background }]}>
+        <ActivityIndicator size="large" color="#3498db" />
+        <Text style={[styles.loadingText, { color: c.textMuted }]}>
+          Preparing scenario filters... {knownUnitsProgress}%
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
       {/* Search */}
@@ -195,7 +298,7 @@ export default function ScenariosScreen() {
         />
       </View>
 
-      {/* Stats + playable toggle */}
+      {/* Stats + filters */}
       <View style={[styles.statsRow, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
         <View style={styles.statItem}>
           <Text style={[styles.statNum, { color: c.text }]}>{filtered.length}</Text>
@@ -205,55 +308,155 @@ export default function ScenariosScreen() {
           <Text style={[styles.statNum, { color: '#27ae60' }]}>{playableCount}</Text>
           <Text style={[styles.statLabel, { color: c.textMuted }]}>Can Play</Text>
         </View>
-        <TouchableOpacity
-          style={[styles.toggleBtn, { borderColor: showPlayable ? '#27ae60' : c.border, backgroundColor: showPlayable ? '#27ae60' : c.surface }]}
-          onPress={() => setShowPlayable(v => !v)}
-        >
-          <Text style={[styles.toggleText, { color: showPlayable ? '#fff' : c.text }]}>
-            {showPlayable ? '✓ Playable only' : 'Show all'}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.toggleGroup}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, { borderColor: activeFilterCount > 0 ? '#8e44ad' : c.border, backgroundColor: activeFilterCount > 0 ? '#8e44ad' : c.surface }]}
+            onPress={() => setFilterModalVisible(true)}
+          >
+            <Text style={[styles.toggleText, { color: activeFilterCount > 0 ? '#fff' : c.text }]} numberOfLines={1}>
+              {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : 'Filters'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Location filter */}
-      <View style={[styles.filterContainer, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-          {locations.map(loc => (
+      {/* Filter modal */}
+      <Modal
+        visible={filterModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setFilterModalVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setFilterModalVisible(false)} />
+        <View style={[styles.modalSheet, { backgroundColor: c.surface }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: c.border }]}>
+            <Text style={[styles.modalTitle, { color: c.text }]}>Filters</Text>
+            <View style={styles.modalHeaderActions}>
+              {(bookFiltered || showPlayable || showLegacy || hideUnknownUnits) && (
+                <TouchableOpacity onPress={() => { setSelectedBooks([]); setShowPlayable(false); setShowLegacy(false); setHideUnknownUnits(false); }}>
+                  <Text style={styles.clearAll}>Clear</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => setFilterModalVisible(false)} style={[styles.doneBtn, { backgroundColor: '#3498db' }]}>
+                <Text style={styles.doneBtnText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.filterToggles}>
             <TouchableOpacity
-              key={loc}
               style={[
                 styles.filterChip,
                 { backgroundColor: c.filterChipBg, borderColor: c.border },
-                selectedLocation === loc && styles.filterChipSelected,
+                showPlayable && styles.filterChipSelected
               ]}
-              onPress={() => setSelectedLocation(loc)}
+              onPress={() => setShowPlayable(v => !v)}
             >
               <Text style={[
                 styles.filterChipText,
                 { color: c.textMuted },
-                selectedLocation === loc && styles.filterChipTextSelected,
+                showPlayable && styles.filterChipTextSelected
               ]}>
-                {loc === 'All' ? 'All Locations' : (LOCATION_LABELS[loc] ?? loc)}
+                {showPlayable ? '✓ Playable' : 'Playable'}
               </Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                { backgroundColor: c.filterChipBg, borderColor: c.border },
+                showLegacy && styles.filterChipBookSelected
+              ]}
+              onPress={() => setShowLegacy(v => !v)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: c.textMuted },
+                showLegacy && styles.filterChipTextSelected
+              ]}>
+                {showLegacy ? '✓ Legacy' : 'Legacy'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterChip,
+                { backgroundColor: c.filterChipBg, borderColor: c.border },
+                hideUnknownUnits && styles.filterChipSelected
+              ]}
+              onPress={() => setHideUnknownUnits(v => !v)}
+            >
+              <Text style={[
+                styles.filterChipText,
+                { color: c.textMuted },
+                hideUnknownUnits && styles.filterChipTextSelected
+              ]}>
+                {hideUnknownUnits ? '✓ Known Units Only' : 'Known Units Only'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={item => item.id.toString()}
-        renderItem={renderScenario}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <Text style={[styles.empty, { color: c.textMuted }]}>No scenarios found</Text>
-        }
-      />
+          <Text style={[styles.modalSectionLabel, { color: c.textMuted }]}>Sourcebooks</Text>
+          <ScrollView contentContainerStyle={styles.bookGrid}>
+            {books.map(book => (
+              <TouchableOpacity
+                key={book}
+                style={[
+                  styles.filterChip,
+                  { backgroundColor: c.filterChipBg, borderColor: c.border },
+                  selectedBooks.includes(book) && styles.filterChipBookSelected,
+                ]}
+                onPress={() => {
+                  setSelectedBooks(prev =>
+                    prev.includes(book) ? prev.filter(b => b !== book) : [...prev, book]
+                  );
+                }}
+              >
+                <Text style={[
+                  styles.filterChipText,
+                  { color: c.textMuted },
+                  selectedBooks.includes(book) && styles.filterChipTextSelected,
+                ]}>
+                  {selectedBooks.includes(book) ? `✓ ${book}` : book}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {groupByAge ? (
+        <SectionList
+          sections={sections}
+          keyExtractor={item => item.id.toString()}
+          renderItem={renderScenario}
+          contentContainerStyle={styles.list}
+          renderSectionHeader={({ section }) => (
+            <View style={[styles.sectionHeader, { backgroundColor: c.background }]}>
+              <Text style={[styles.sectionHeaderText, { color: c.textSecondary }]}>{section.title}</Text>
+              <Text style={[styles.sectionHeaderCount, { color: c.textMuted }]}>{section.data.length}</Text>
+            </View>
+          )}
+          ListEmptyComponent={
+            <Text style={[styles.empty, { color: c.textMuted }]}>No scenarios found</Text>
+          }
+        />
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={item => item.id.toString()}
+          renderItem={renderScenario}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={
+            <Text style={[styles.empty, { color: c.textMuted }]}>No scenarios found</Text>
+          }
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText: { fontSize: 15, fontWeight: '500' },
   container: { flex: 1 },
   searchBar: { padding: 12, borderBottomWidth: 1 },
   searchInput: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, fontSize: 15 },
@@ -261,12 +464,14 @@ const styles = StyleSheet.create({
   statItem: { alignItems: 'center' },
   statNum: { fontSize: 20, fontWeight: 'bold' },
   statLabel: { fontSize: 11 },
-  toggleBtn: { marginLeft: 'auto', borderWidth: 1.5, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
+  toggleGroup: { marginLeft: 'auto', flexDirection: 'row', gap: 8 },
+  toggleBtn: { borderWidth: 1.5, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
   toggleText: { fontSize: 13, fontWeight: '600' },
   filterContainer: { borderBottomWidth: 1, paddingVertical: 10 },
   filterScroll: { paddingHorizontal: 12, gap: 8 },
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, marginRight: 6 },
   filterChipSelected: { backgroundColor: '#3498db', borderColor: '#3498db' },
+  filterChipBookSelected: { backgroundColor: '#8e44ad', borderColor: '#8e44ad' },
   filterChipText: { fontSize: 13, fontWeight: '500' },
   filterChipTextSelected: { color: '#fff', fontWeight: '600' },
   list: { padding: 12 },
@@ -290,4 +495,20 @@ const styles = StyleSheet.create({
   rating: { fontSize: 12 },
   playLabel: { fontSize: 12, fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 40, fontSize: 16 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingVertical: 10 },
+  sectionHeaderText: { fontSize: 15, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+  sectionHeaderCount: { fontSize: 13 },
+  // Filter modal
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  modalSheet: { maxHeight: '60%', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
+  modalTitle: { fontSize: 18, fontWeight: '700' },
+  modalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clearAll: { fontSize: 14, color: '#e74c3c', fontWeight: '600' },
+  doneBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16 },
+  doneBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  filterToggles: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 14 },
+  modalSectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
+  bookGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 16, gap: 8 },
 });
+

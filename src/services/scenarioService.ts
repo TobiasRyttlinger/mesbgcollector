@@ -1,4 +1,4 @@
-import rawData from '../data/scenarios_req.json';
+import rawData from '../data/mesbg_scenarios_with_roles_profiles_fixed.json';
 import { Scenario, ScenarioSource } from '../types/scenario.types';
 
 // Normalise the raw JSON into clean Scenario objects

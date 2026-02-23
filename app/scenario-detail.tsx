@@ -1,12 +1,16 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
+import scenariosCombinedData from '../src/data/scenarios_roles_without_legacy.json';
+import { PaintStatus, createCollectionItem } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
-import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
+import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
+import { mesbgDataService } from '../src/services/mesbgDataService';
 import { scenarioService } from '../src/services/scenarioService';
+import { MesbgUnit } from '../src/types/mesbg-data.types';
 import { AGE_LABELS, LOCATION_LABELS } from '../src/types/scenario.types';
-import scenariosRolesData from '../src/data/scenarios_roles.json';
+import { collectionItemMatchesRole, extractEquipment, findOptionIdsForEquipment, findUnitForRoleDebug } from '../src/utils/scenarioRoleMatching';
 
 interface Figure {
   figure_id: number;
@@ -42,12 +46,9 @@ interface FactionCheck {
 }
 
 // Bundled offline role data: scenario id (string) → faction array
-const rolesLookup = scenariosRolesData as Record<string, DetailedFaction[]>;
-
-/** Strip variant suffixes like "(plastic)", "(White Council)" from figure names */
-function stripVariant(name: string): string {
-  return name.replace(/\s*\([^)]*\)\s*/g, '').trim().toLowerCase();
-}
+const rolesLookup = Object.fromEntries(
+  (((scenariosCombinedData as any).data ?? []) as any[]).map(s => [String(s.id), s.scenario_factions ?? []])
+) as Record<string, DetailedFaction[]>;
 
 function checkFactions(
   factions: DetailedFaction[],
@@ -55,45 +56,17 @@ function checkFactions(
 ): FactionCheck[] {
   return factions.map(faction => {
     const roleChecks: RoleCheck[] = faction.roles.map(role => {
-      // Gather all base names this role accepts (from figures array)
-      const acceptedNames = new Set<string>();
-      role.figures.forEach(fig => {
-        acceptedNames.add(stripVariant(fig.name));
-        // Also add the raw figure name in case stripping removes too much
-        acceptedNames.add(fig.name.toLowerCase());
-      });
-      // Also accept the role name itself as a fallback
-      acceptedNames.add(role.name.toLowerCase());
-      acceptedNames.add(stripVariant(role.name));
-
-      // Find matching collection items
-      const matchedUnits: string[] = [];
       let owned = 0;
-
+      const matchedUnits: string[] = [];
       collection.forEach(item => {
-        const itemName = (item.unit_data?.name ?? item.display_name).toLowerCase();
-        const itemNameStripped = stripVariant(item.unit_data?.name ?? item.display_name);
-
-        const matches = acceptedNames.has(itemName) || acceptedNames.has(itemNameStripped);
-        if (matches) {
+        if (collectionItemMatchesRole(item, role)) {
           owned += item.owned_quantity;
           matchedUnits.push(item.display_name);
         }
       });
-
-      return {
-        role,
-        owned,
-        satisfied: owned >= role.amount,
-        matchedUnits,
-      };
+      return { role, owned, satisfied: owned >= role.amount, matchedUnits };
     });
-
-    return {
-      faction,
-      roleChecks,
-      allSatisfied: roleChecks.every(rc => rc.satisfied),
-    };
+    return { faction, roleChecks, allSatisfied: roleChecks.every(rc => rc.satisfied) };
   });
 }
 
@@ -105,7 +78,17 @@ export default function ScenarioDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [collection, setCollection] = useState<CollectionItemView[]>([]);
 
+  // Quick-add state
+  const [addingRole, setAddingRole] = useState<Role | null>(null);
+  const [addingUnit, setAddingUnit] = useState<MesbgUnit | null>(null);
+  const [addQty, setAddQty] = useState('1');
+  const [addPaintStatus, setAddPaintStatus] = useState<PaintStatus>(PaintStatus.UNPAINTED);
+  const [addSelectedOptions, setAddSelectedOptions] = useState<string[]>([]);
+  const [addSaving, setAddSaving] = useState(false);
+  const [addSearchDebug, setAddSearchDebug] = useState('');
+
   const scenario = useMemo(() => scenarioService.getById(Number(id)), [id]);
+  const allUnits = useMemo(() => mesbgDataService.getAllUnits(), []);
 
   // Factions come from the bundled JSON — no network call needed
   const factions: DetailedFaction[] = useMemo(
@@ -132,6 +115,61 @@ export default function ScenarioDetailScreen() {
 
   const overallCanPlay = factionChecks.length > 0 && factionChecks.some(fc => fc.allSatisfied);
 
+  const openAddModal = (role: Role) => {
+    const lookup = findUnitForRoleDebug(role, allUnits);
+    const unit = lookup.unit;
+    setAddingRole(role);
+    setAddingUnit(unit ?? null);
+    setAddSearchDebug(`Search source: "${lookup.sourceName}"  ->  base query: "${lookup.baseQuery}"`);
+    setAddQty(String(role.amount));
+    setAddPaintStatus(PaintStatus.UNPAINTED);
+    // Pre-select the equipment option if the role specifies one
+    if (unit) {
+      let equipment: string | null = null;
+      for (const fig of role.figures) {
+        equipment = extractEquipment(fig.name);
+        if (equipment) break;
+      }
+      if (!equipment) equipment = extractEquipment(role.name);
+      const optIds = equipment ? findOptionIdsForEquipment(unit, equipment) : undefined;
+      setAddSelectedOptions(optIds ?? []);
+    } else {
+      setAddSelectedOptions([]);
+    }
+  };
+
+  const closeAddModal = () => {
+    setAddingRole(null);
+    setAddingUnit(null);
+    setAddSelectedOptions([]);
+    setAddSearchDebug('');
+  };
+
+  const handleQuickAdd = async () => {
+    if (!addingUnit && !addingRole) return;
+    const qty = parseInt(addQty) || 1;
+    setAddSaving(true);
+    try {
+      // If we matched a unit, use its model_id; otherwise nothing to save
+      if (addingUnit) {
+        const item = createCollectionItem(
+          addingUnit.model_id, qty, addPaintStatus, undefined,
+          addSelectedOptions.length > 0 ? addSelectedOptions : undefined
+        );
+        await collectionStorage.addItem(item);
+        await loadCollection();
+        Alert.alert('Added!', `${addingUnit.name} ×${qty} added to your collection.`);
+      } else {
+        Alert.alert('Not found', 'Could not find a matching unit in the database.');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to save.');
+    } finally {
+      setAddSaving(false);
+      closeAddModal();
+    }
+  };
+
   if (!scenario) {
     return (
       <View style={[styles.container, { backgroundColor: c.background }]}>
@@ -145,122 +183,230 @@ export default function ScenarioDetailScreen() {
   const locationLabel = LOCATION_LABELS[scenario.location] ?? scenario.location;
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: c.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: c.headerBg }]}>
-        <Text style={styles.title}>{scenario.name}</Text>
-        <Text style={styles.subtitle}>{locationLabel}  •  {dateStr}</Text>
-      </View>
-
-      {/* Blurb */}
-      {scenario.blurb ? (
-        <View style={[styles.section, { backgroundColor: c.surface }]}>
-          <Text style={[styles.blurb, { color: c.textSecondary }]}>{scenario.blurb}</Text>
+    <View style={[styles.container, { backgroundColor: c.background }]}>
+      <ScrollView style={{ flex: 1 }}>
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: c.headerBg }]}>
+          <Text style={styles.title}>{scenario.name}</Text>
+          <Text style={styles.subtitle}>{locationLabel}  •  {dateStr}</Text>
         </View>
-      ) : null}
 
-      {/* Key info */}
-      <View style={[styles.section, { backgroundColor: c.surface }]}>
-        <Row label="Models Required" value={scenario.size.toString()} c={c} />
-        <Row label="Map Size" value={`${scenario.map_width}" × ${scenario.map_height}"`} c={c} />
-        {scenario.num_votes > 0 && (
-          <Row
-            label="Community Rating"
-            value={`★ ${scenario.avg_rating.toFixed(1)} (${scenario.num_votes} votes)`}
-            c={c}
-          />
-        )}
-      </View>
+        {/* Blurb */}
+        {scenario.blurb ? (
+          <View style={[styles.section, { backgroundColor: c.surface }]}>
+            <Text style={[styles.blurb, { color: c.textSecondary }]}>{scenario.blurb}</Text>
+          </View>
+        ) : null}
 
-      {/* Sources */}
-      {scenario.sources.length > 0 && (
+        {/* Key info */}
         <View style={[styles.section, { backgroundColor: c.surface }]}>
-          <Text style={[styles.sectionTitle, { color: c.text }]}>Sources</Text>
-          {scenario.sources.map(src => (
-            <View key={src.id} style={[styles.sourceRow, { borderBottomColor: c.border }]}>
-              <Text style={[styles.sourceTitle, { color: c.text }]}>
-                {src.title}{src.issue ? ` #${src.issue}` : ''}
-              </Text>
-              <Text style={[styles.sourcePage, { color: c.textMuted }]}>p. {src.page}</Text>
-            </View>
-          ))}
+          <Row label="Models Required" value={scenario.size.toString()} c={c} />
+          <Row label="Map Size" value={`${scenario.map_width}" × ${scenario.map_height}"`} c={c} />
+          {scenario.num_votes > 0 && (
+            <Row
+              label="Community Rating"
+              value={`★ ${scenario.avg_rating.toFixed(1)} (${scenario.num_votes} votes)`}
+              c={c}
+            />
+          )}
         </View>
-      )}
 
-      {/* Collection Check */}
-      <View style={[styles.section, { backgroundColor: c.surface }]}>
-        <Text style={[styles.sectionTitle, { color: c.text }]}>Collection Check</Text>
-
-        {loading ? (
-          <ActivityIndicator color="#3498db" style={{ marginVertical: 16 }} />
-        ) : factionChecks.length === 0 ? (
-          <Text style={[styles.errorText, { color: c.textMuted }]}>
-            No unit requirements found for this scenario.
-          </Text>
-        ) : (
-          <>
-            {/* Overall result */}
-            <View style={[
-              styles.overallBadge,
-              { backgroundColor: overallCanPlay ? '#27ae60' : '#e74c3c' }
-            ]}>
-              <Text style={styles.overallBadgeText}>
-                {overallCanPlay
-                  ? '✓ You can play at least one side!'
-                  : '✗ Missing models for all sides'}
-              </Text>
-            </View>
-
-            {factionChecks.map((fc, idx) => (
-              <View key={fc.faction.id} style={[styles.factionBlock, { borderColor: c.border }]}>
-                <View style={[
-                  styles.factionHeader,
-                  { backgroundColor: fc.allSatisfied ? '#27ae60' : '#e74c3c' }
-                ]}>
-                  <Text style={styles.factionTitle}>
-                    {idx === 0 ? 'Side 1' : 'Side 2'}
-                  </Text>
-                  <Text style={styles.factionStatus}>
-                    {fc.allSatisfied ? '✓ Ready' : '✗ Missing models'}
-                  </Text>
-                  {fc.faction.suggested_points > 0 && (
-                    <Text style={styles.factionPoints}>
-                      ~{fc.faction.suggested_points} pts
-                    </Text>
-                  )}
-                </View>
-
-                {fc.roleChecks.map(rc => (
-                  <View
-                    key={rc.role.id}
-                    style={[styles.roleRow, { borderBottomColor: c.border }]}
-                  >
-                    <View style={[
-                      styles.roleIcon,
-                      { backgroundColor: rc.satisfied ? '#27ae60' : '#e74c3c' }
-                    ]}>
-                      <Text style={styles.roleIconText}>
-                        {rc.satisfied ? '✓' : '✗'}
-                      </Text>
-                    </View>
-                    <View style={styles.roleInfo}>
-                      <Text style={[styles.roleName, { color: c.text }]}>
-                        {rc.role.name}
-                      </Text>
-                      <Text style={[styles.roleCount, {
-                        color: rc.satisfied ? '#27ae60' : '#e74c3c'
-                      }]}>
-                        {rc.owned}/{rc.role.amount} owned
-                      </Text>
-                    </View>
-                  </View>
-                ))}
+        {/* Sources */}
+        {scenario.sources.length > 0 && (
+          <View style={[styles.section, { backgroundColor: c.surface }]}>
+            <Text style={[styles.sectionTitle, { color: c.text }]}>Sources</Text>
+            {scenario.sources.map(src => (
+              <View key={src.id} style={[styles.sourceRow, { borderBottomColor: c.border }]}>
+                <Text style={[styles.sourceTitle, { color: c.text }]}>
+                  {src.title}{src.issue ? ` #${src.issue}` : ''}
+                </Text>
+                <Text style={[styles.sourcePage, { color: c.textMuted }]}>p. {src.page}</Text>
               </View>
             ))}
-          </>
+          </View>
         )}
-      </View>
-    </ScrollView>
+
+        {/* Collection Check */}
+        <View style={[styles.section, { backgroundColor: c.surface, marginBottom: 32 }]}>
+          <Text style={[styles.sectionTitle, { color: c.text }]}>Collection Check</Text>
+
+          {loading ? (
+            <ActivityIndicator color="#3498db" style={{ marginVertical: 16 }} />
+          ) : factionChecks.length === 0 ? (
+            <Text style={[styles.errorText, { color: c.textMuted }]}>
+              No unit requirements found for this scenario.
+            </Text>
+          ) : (
+            <>
+              {/* Overall result */}
+              <View style={[
+                styles.overallBadge,
+                { backgroundColor: overallCanPlay ? '#27ae60' : '#e74c3c' }
+              ]}>
+                <Text style={styles.overallBadgeText}>
+                  {overallCanPlay
+                    ? '✓ You can play at least one side!'
+                    : '✗ Missing models for all sides'}
+                </Text>
+              </View>
+
+              {factionChecks.map((fc, idx) => (
+                <View key={fc.faction.id} style={[styles.factionBlock, { borderColor: c.border }]}>
+                  <View style={[
+                    styles.factionHeader,
+                    { backgroundColor: fc.allSatisfied ? '#27ae60' : '#e74c3c' }
+                  ]}>
+                    <Text style={styles.factionTitle}>
+                      {idx === 0 ? 'Side 1' : 'Side 2'}
+                    </Text>
+                    <Text style={styles.factionStatus}>
+                      {fc.allSatisfied ? '✓ Ready' : '✗ Missing models'}
+                    </Text>
+                    {fc.faction.suggested_points > 0 && (
+                      <Text style={styles.factionPoints}>
+                        ~{fc.faction.suggested_points} pts
+                      </Text>
+                    )}
+                  </View>
+
+                  {fc.roleChecks.map(rc => (
+                    <View
+                      key={rc.role.id}
+                      style={[styles.roleRow, { borderBottomColor: c.border }]}
+                    >
+                      <View style={[
+                        styles.roleIcon,
+                        { backgroundColor: rc.satisfied ? '#27ae60' : '#e74c3c' }
+                      ]}>
+                        <Text style={styles.roleIconText}>
+                          {rc.satisfied ? '✓' : '✗'}
+                        </Text>
+                      </View>
+                      <View style={styles.roleInfo}>
+                        <Text style={[styles.roleName, { color: c.text }]}>
+                          {rc.role.name}
+                        </Text>
+                        <Text style={[styles.roleCount, {
+                          color: rc.satisfied ? '#27ae60' : '#e74c3c'
+                        }]}>
+                          {rc.owned}/{rc.role.amount} owned
+                        </Text>
+                      </View>
+                      {!rc.satisfied && (
+                        <TouchableOpacity
+                          style={styles.addBtn}
+                          onPress={() => openAddModal(rc.role)}
+                        >
+                          <Text style={styles.addBtnText}>+</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Quick-add modal */}
+      <Modal
+        visible={addingRole !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={closeAddModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeAddModal} />
+        <View style={[styles.modalSheet, { backgroundColor: c.surface }]}>
+          <Text style={[styles.modalTitle, { color: c.text }]}>
+            Add to Collection
+          </Text>
+          <Text style={[styles.modalUnitName, { color: c.textSecondary }]}>
+            {addingUnit ? addingUnit.name : addingRole?.name ?? ''}
+            {!addingUnit && (
+              <Text style={{ color: '#e74c3c', fontSize: 12 }}>{'\n'}(no exact match in database)</Text>
+            )}
+          </Text>
+          <Text style={[styles.modalDebugText, { color: c.textMuted }]}>
+            {addSearchDebug}
+          </Text>
+
+          <Text style={[styles.modalLabel, { color: c.textMuted }]}>Quantity</Text>
+          <TextInput
+            style={[styles.modalInput, { backgroundColor: c.inputBg, borderColor: c.border, color: c.text }]}
+            value={addQty}
+            onChangeText={setAddQty}
+            keyboardType="number-pad"
+            selectTextOnFocus
+          />
+
+          {addingUnit && addingUnit.options.length > 0 && (
+            <>
+              <Text style={[styles.modalLabel, { color: c.textMuted }]}>Equipment</Text>
+              <View style={styles.paintRow}>
+                {addingUnit.options.map(opt => {
+                  const selected = addSelectedOptions.includes(opt.id);
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[styles.paintBtn, { borderColor: c.border }, selected && styles.paintBtnSelected]}
+                      onPress={() => setAddSelectedOptions(prev =>
+                        prev.includes(opt.id) ? prev.filter(id => id !== opt.id) : [...prev, opt.id]
+                      )}
+                    >
+                      <Text style={[styles.paintBtnText, { color: c.textMuted }, selected && styles.paintBtnTextSelected]}>
+                        {opt.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
+          <Text style={[styles.modalLabel, { color: c.textMuted }]}>Paint Status</Text>
+          <View style={styles.paintRow}>
+            {Object.values(PaintStatus).map(status => (
+              <TouchableOpacity
+                key={status}
+                style={[
+                  styles.paintBtn,
+                  { borderColor: c.border },
+                  addPaintStatus === status && styles.paintBtnSelected,
+                ]}
+                onPress={() => setAddPaintStatus(status)}
+              >
+                <Text style={[
+                  styles.paintBtnText,
+                  { color: c.textMuted },
+                  addPaintStatus === status && styles.paintBtnTextSelected,
+                ]}>
+                  {status}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.modalCancel, { borderColor: c.border }]}
+              onPress={closeAddModal}
+            >
+              <Text style={[styles.modalCancelText, { color: c.textMuted }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalSave, { opacity: addingUnit ? 1 : 0.4 }]}
+              onPress={handleQuickAdd}
+              disabled={!addingUnit || addSaving}
+            >
+              <Text style={styles.modalSaveText}>
+                {addSaving ? 'Saving…' : 'Add to Collection'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -302,4 +448,25 @@ const styles = StyleSheet.create({
   roleInfo: { flex: 1 },
   roleName: { fontSize: 14, fontWeight: '500' },
   roleCount: { fontSize: 12, fontWeight: '600', marginTop: 2 },
+  addBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#3498db', justifyContent: 'center', alignItems: 'center' },
+  addBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold', lineHeight: 22 },
+  // Modal
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  modalSheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 40 },
+  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  modalUnitName: { fontSize: 15, marginBottom: 16 },
+  modalDebugText: { fontSize: 12, marginBottom: 6, fontStyle: 'italic' },
+  modalLabel: { fontSize: 13, fontWeight: '600', marginBottom: 6, marginTop: 12 },
+  modalInput: { borderWidth: 1, borderRadius: 8, padding: 10, fontSize: 16, marginBottom: 4 },
+  paintRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  paintBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1 },
+  paintBtnSelected: { backgroundColor: '#e74c3c', borderColor: '#e74c3c' },
+  paintBtnText: { fontSize: 13 },
+  paintBtnTextSelected: { color: '#fff', fontWeight: '600' },
+  modalActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  modalCancel: { flex: 1, padding: 14, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
+  modalCancelText: { fontSize: 15, fontWeight: '600' },
+  modalSave: { flex: 2, padding: 14, borderRadius: 8, backgroundColor: '#27ae60', alignItems: 'center' },
+  modalSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
+

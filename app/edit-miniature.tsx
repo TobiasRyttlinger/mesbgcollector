@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { PaintStatus, CollectionItem } from '../src/models/Collection';
+import { PaintStatus, CollectionItem, isFullyPaintedStatus } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { collectionViewService, CollectionItemView } from '../src/services/collectionViewService';
 import { useTheme } from '../src/contexts/ThemeContext';
@@ -52,7 +52,10 @@ export default function EditMiniatureScreen() {
     if (!item) return;
 
     const ownedQty = parseInt(owned_quantity) || 0;
-    const paintedQty = parseInt(painted_quantity) || 0;
+    const manualPaintedQty = parseInt(painted_quantity) || 0;
+    const paintedQty = isFullyPaintedStatus(paint_status)
+      ? ownedQty
+      : Math.min(manualPaintedQty, ownedQty);
 
     if (paintedQty > ownedQty) {
       Alert.alert('Validation Error', 'Painted quantity cannot exceed owned quantity');
@@ -156,7 +159,13 @@ export default function EditMiniatureScreen() {
                 { backgroundColor: c.surface, borderColor: c.border },
                 paint_status === status && { borderColor: getPaintStatusColor(status), backgroundColor: c.surfaceRaised }
               ]}
-              onPress={() => setPaintStatus(status)}
+              onPress={() => {
+                setPaintStatus(status);
+                if (isFullyPaintedStatus(status)) {
+                  const ownedQty = parseInt(owned_quantity) || 0;
+                  setPaintedQuantity(String(ownedQty));
+                }
+              }}
             >
               <View style={[styles.statusDot, { backgroundColor: getPaintStatusColor(status) }]} />
               <Text style={[
