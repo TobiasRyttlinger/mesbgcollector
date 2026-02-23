@@ -1,15 +1,15 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { Alert, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../src/contexts/ThemeContext';
 import { PaintStatus } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
-import { useTheme } from '../src/contexts/ThemeContext';
 
 export default function InventoryScreen() {
   const [collection, setCollection] = useState<CollectionItemView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedArmy, setSelectedArmy] = useState<string>('All');
+  const [compact, setCompact] = useState(false);
   const router = useRouter();
   const { theme } = useTheme();
   const c = theme.colors;
@@ -90,7 +90,7 @@ export default function InventoryScreen() {
 
   const getPaintStatusColor = (status: PaintStatus) => {
     switch (status) {
-      case PaintStatus.UNPAINTED: return '#95a5a6';
+      case PaintStatus.UNPAINTED: return '#3d4b4d';
       case PaintStatus.PRIMED: return '#f39c12';
       case PaintStatus.IN_PROGRESS: return '#3498db';
       case PaintStatus.PAINTED: return '#2ecc71';
@@ -150,18 +150,24 @@ export default function InventoryScreen() {
     </View>
   );
 
-  const armies = useMemo(() => {
-    const uniqueArmies = Array.from(new Set(collection.map(item => item.army_name)));
-    return ['All', ...uniqueArmies.sort()];
-  }, [collection]);
-
-  const filteredCollection = useMemo(() => {
-    if (selectedArmy === 'All') return collection;
-    return collection.filter(item => item.army_name === selectedArmy);
-  }, [collection, selectedArmy]);
+  const renderMiniatureCompact = ({ item }: { item: CollectionItemView }) => (
+    <TouchableOpacity
+      style={[styles.compactRow, { backgroundColor: c.surface, borderBottomColor: c.border }]}
+      onPress={() => router.push({ pathname: '/miniature-detail', params: { id: item.id } })}
+      onLongPress={() => handleDelete(item.id)}
+    >
+      <View style={[styles.compactBar, { backgroundColor: getPaintStatusColor(item.paint_status) }]} />
+      <Text style={[styles.compactName, { color: c.text }]} numberOfLines={1}>{item.display_name}</Text>
+      <Text style={[styles.compactQty, { color: c.textMuted }]}>×{item.owned_quantity}</Text>
+      <View style={[styles.compactDot, { backgroundColor: getPaintStatusColor(item.paint_status) }]} />
+      <TouchableOpacity style={styles.compactAction} onPress={() => handleQuickActions(item)}>
+        <Text style={styles.compactActionText}>⚡</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
 
   const stats = collectionViewService.getStatistics(
-    filteredCollection.map(item => ({
+    collection.map(item => ({
       id: item.id,
       model_id: item.model_id,
       owned_quantity: item.owned_quantity,
@@ -182,33 +188,6 @@ export default function InventoryScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
-      {/* Army Filter */}
-      {collection.length > 0 && (
-        <View style={[styles.filterContainer, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-            {armies.map(army => (
-              <TouchableOpacity
-                key={army}
-                style={[
-                  styles.filterChip,
-                  { backgroundColor: c.filterChipBg, borderColor: c.border },
-                  selectedArmy === army && styles.filterChipSelected
-                ]}
-                onPress={() => setSelectedArmy(army)}
-              >
-                <Text style={[
-                  styles.filterChipText,
-                  { color: c.textMuted },
-                  selectedArmy === army && styles.filterChipTextSelected
-                ]}>
-                  {army}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
       {/* Stats */}
       <View style={[styles.statsContainer, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
         <View style={styles.statBox}>
@@ -223,6 +202,12 @@ export default function InventoryScreen() {
           <Text style={[styles.statNumber, { color: c.text }]}>{stats.totalArmies}</Text>
           <Text style={[styles.statLabel, { color: c.textMuted }]}>Armies</Text>
         </View>
+        <TouchableOpacity
+          style={[styles.viewToggle, { borderColor: c.border, backgroundColor: c.surface }]}
+          onPress={() => setCompact(v => !v)}
+        >
+          <Text style={[styles.viewToggleText, { color: c.text }]}>{compact ? '⊞' : '☰'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Army Progress Bar */}
@@ -230,7 +215,7 @@ export default function InventoryScreen() {
         <View style={[styles.armyProgressContainer, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
           <View style={styles.armyProgressHeader}>
             <Text style={[styles.armyProgressLabel, { color: c.text }]}>
-              {selectedArmy === 'All' ? 'Overall' : selectedArmy} Painting Progress
+              Overall Painting Progress
             </Text>
             <Text style={styles.armyProgressPercentage}>
               {Math.round((stats.paintedModels / stats.totalModels) * 100)}%
@@ -250,23 +235,19 @@ export default function InventoryScreen() {
         </View>
       )}
 
-      {filteredCollection.length === 0 ? (
+      {collection.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={[styles.emptyText, { color: c.textMuted }]}>
-            {selectedArmy === 'All' ? 'No miniatures yet' : `No ${selectedArmy} miniatures`}
-          </Text>
+          <Text style={[styles.emptyText, { color: c.textMuted }]}>No miniatures yet</Text>
           <Text style={[styles.emptySubtext, { color: c.placeholder }]}>
-            {selectedArmy === 'All'
-              ? 'Tap the + button to add your first miniature'
-              : 'Try selecting a different army or add new miniatures'}
+            Tap the + button to add your first miniature
           </Text>
         </View>
       ) : (
         <FlatList
-          data={filteredCollection}
-          renderItem={renderMiniature}
+          data={collection}
+          renderItem={compact ? renderMiniatureCompact : renderMiniature}
           keyExtractor={item => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={compact ? styles.listCompact : styles.list}
         />
       )}
 
@@ -284,15 +265,6 @@ export default function InventoryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingText: { textAlign: 'center', marginTop: 20, fontSize: 16 },
-  filterContainer: { borderBottomWidth: 1, paddingVertical: 12 },
-  filterScroll: { paddingHorizontal: 16, gap: 8 },
-  filterChip: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-    borderWidth: 1, marginRight: 8
-  },
-  filterChipSelected: { backgroundColor: '#3498db', borderColor: '#3498db' },
-  filterChipText: { fontSize: 14, fontWeight: '500' },
-  filterChipTextSelected: { color: '#fff', fontWeight: '600' },
   statsContainer: { flexDirection: 'row', padding: 16, borderBottomWidth: 1 },
   statBox: { flex: 1, alignItems: 'center' },
   statNumber: { fontSize: 24, fontWeight: 'bold' },
@@ -353,5 +325,17 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3, shadowRadius: 4
   },
-  fabText: { fontSize: 32, color: '#fff', lineHeight: 32 }
+  fabText: { fontSize: 32, color: '#fff', lineHeight: 32 },
+  // View toggle button
+  viewToggle: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginLeft: 'auto' },
+  viewToggleText: { fontSize: 18 },
+  // Compact list
+  listCompact: { paddingTop: 4 },
+  compactRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingRight: 12, borderBottomWidth: 1 },
+  compactBar: { width: 4, alignSelf: 'stretch', marginRight: 12 },
+  compactName: { flex: 1, fontSize: 14, fontWeight: '500', marginRight: 8 },
+  compactQty: { fontSize: 13, fontWeight: '600', marginRight: 8 },
+  compactDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
+  compactAction: { padding: 4 },
+  compactActionText: { fontSize: 15 },
 });

@@ -1,15 +1,21 @@
-import { Stack } from 'expo-router';
-import { TouchableOpacity, Text } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { ThemeProvider, useTheme } from '../src/contexts/ThemeContext';
 
 function AppStack() {
   const { theme, toggleTheme } = useTheme();
   const { headerBg } = theme.colors;
+  const router = useRouter();
 
-  const toggleButton = (
-    <TouchableOpacity onPress={toggleTheme} style={{ marginRight: 12 }}>
-      <Text style={{ fontSize: 20 }}>{theme.dark ? '☀️' : '🌙'}</Text>
-    </TouchableOpacity>
+  const indexHeaderRight = () => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 8 }}>
+      <TouchableOpacity onPress={() => router.push('/settings')} style={{ padding: 6 }}>
+        <Text style={{ fontSize: 20 }}>⚙️</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={toggleTheme} style={{ padding: 6 }}>
+        <Text style={{ fontSize: 20 }}>{theme.dark ? '☀️' : '🌙'}</Text>
+      </TouchableOpacity>
+    </View>
   );
 
   return (
@@ -21,7 +27,7 @@ function AppStack() {
           headerStyle: { backgroundColor: headerBg },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: 'bold' },
-          headerRight: () => toggleButton
+          headerRight: indexHeaderRight,
         }}
       />
       <Stack.Screen
@@ -64,6 +70,16 @@ function AppStack() {
           title: 'Edit Miniature',
           headerStyle: { backgroundColor: headerBg },
           headerTintColor: '#fff'
+        }}
+      />
+      <Stack.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          presentation: 'modal',
+          headerStyle: { backgroundColor: headerBg },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
         }}
       />
     </Stack>
