@@ -4434,7 +4434,7 @@
       "roles": [
         {
           "id": 3722,
-          "name": "Mordor Orc Captains with shield",
+          "name": "Mordor Orc Captains",
           "figures": [
             {
               "name": "Orc Captain",
@@ -4725,7 +4725,7 @@
       "roles": [
         {
           "id": 3735,
-          "name": "Mordor Orc Captains with shield",
+          "name": "Mordor Orc Captains",
           "figures": [
             {
               "name": "Orc Captain",
@@ -13652,8 +13652,25 @@
               "figure_id": 410
             }
           ],
-          "amount": 6,
+          "amount": 2,
           "sort_order": 4,
+          "num_painted": 0,
+          "num_owned": 0
+        },
+        {
+          "id": 4915,
+          "name": "Ruffians with whip",
+          "figures": [
+            {
+              "name": "Ruffian with whip",
+              "plural_name": "Ruffians with whip",
+              "owned": 0,
+              "painted": 0,
+              "figure_id": 410
+            }
+          ],
+          "amount": 4,
+          "sort_order": 5,
           "num_painted": 0,
           "num_owned": 0
         }

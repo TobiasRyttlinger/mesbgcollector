@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
-import scenariosRolesData from '../src/data/scenarios_roles_without_legacy.json';
+import scenariosCombinedData from '../src/data/mesbg_scenarios_with_roles_names_matched.json';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
 import { mesbgDataService } from '../src/services/mesbgDataService';
@@ -23,7 +23,9 @@ import { MesbgUnit } from '../src/types/mesbg-data.types';
 import { AGE_LABELS, LOCATION_LABELS, Scenario } from '../src/types/scenario.types';
 import { collectionItemMatchesRole, findUnitForRole } from '../src/utils/scenarioRoleMatching';
 
-const rolesLookup = scenariosRolesData as Record<string, any[]>;
+const rolesLookup = Object.fromEntries(
+  (((scenariosCombinedData as any).data ?? []) as any[]).map(s => [String(s.id), s.scenario_factions ?? []])
+) as Record<string, any[]>;
 let knownUnitScenarioIdsCache: Set<number> | null = null;
 let knownUnitScenarioIdsBuildPromise: Promise<Set<number>> | null = null;
 let knownUnitScenarioBuildProgress = 0;

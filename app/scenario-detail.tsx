@@ -2,7 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
-import scenariosRolesData from '../src/data/scenarios_roles_without_legacy.json';
+import scenariosCombinedData from '../src/data/scenarios_roles_without_legacy.json';
 import { PaintStatus, createCollectionItem } from '../src/models/Collection';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
@@ -10,7 +10,7 @@ import { mesbgDataService } from '../src/services/mesbgDataService';
 import { scenarioService } from '../src/services/scenarioService';
 import { MesbgUnit } from '../src/types/mesbg-data.types';
 import { AGE_LABELS, LOCATION_LABELS } from '../src/types/scenario.types';
-import { collectionItemMatchesRole, extractEquipment, findOptionIdForEquipment, findUnitForRoleDebug } from '../src/utils/scenarioRoleMatching';
+import { collectionItemMatchesRole, extractEquipment, findOptionIdsForEquipment, findUnitForRoleDebug } from '../src/utils/scenarioRoleMatching';
 
 interface Figure {
   figure_id: number;
@@ -46,7 +46,9 @@ interface FactionCheck {
 }
 
 // Bundled offline role data: scenario id (string) → faction array
-const rolesLookup = scenariosRolesData as Record<string, DetailedFaction[]>;
+const rolesLookup = Object.fromEntries(
+  (((scenariosCombinedData as any).data ?? []) as any[]).map(s => [String(s.id), s.scenario_factions ?? []])
+) as Record<string, DetailedFaction[]>;
 
 function checkFactions(
   factions: DetailedFaction[],
@@ -129,8 +131,8 @@ export default function ScenarioDetailScreen() {
         if (equipment) break;
       }
       if (!equipment) equipment = extractEquipment(role.name);
-      const optId = equipment ? findOptionIdForEquipment(unit, equipment) : undefined;
-      setAddSelectedOptions(optId ? [optId] : []);
+      const optIds = equipment ? findOptionIdsForEquipment(unit, equipment) : undefined;
+      setAddSelectedOptions(optIds ?? []);
     } else {
       setAddSelectedOptions([]);
     }
