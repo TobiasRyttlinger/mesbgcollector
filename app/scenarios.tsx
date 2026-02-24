@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '../src/contexts/ThemeContext';
-import scenariosCombinedData from '../src/data/mesbg_scenarios_with_roles_names_matched.json';
+import scenariosCombinedData from '../src/data/scenarios_roles_without_legacy.json';
 import { collectionStorage } from '../src/services/collectionStorage';
 import { CollectionItemView, collectionViewService } from '../src/services/collectionViewService';
 import { mesbgDataService } from '../src/services/mesbgDataService';
