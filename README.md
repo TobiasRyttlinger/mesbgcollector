@@ -1,130 +1,141 @@
 # MESBG Army Collector
 
-A React Native mobile app for tracking your Middle-earth Strategy Battle Game (MESBG) miniature inventory and building army lists.
+A React Native mobile app for tracking your Middle-earth Strategy Battle Game (MESBG) miniature collection and checking scenario playability against what you own.
 
 ## Features
 
-### Current Features (v1.0)
-- **Inventory Tracking**: Track all your MESBG miniatures with details like:
-  - Miniature name
-  - Army affiliation (Gondor, Rohan, Mordor, etc.)
-  - Unit type (Hero, Warrior, Cavalry, etc.)
-  - Quantity owned
-  - Paint status (Unpainted, Primed, In Progress, Painted, Based)
-  - Points value
-  - Personal notes
-- **Statistics Dashboard**: See at a glance:
-  - Total number of models
-  - Number of painted models
-  - Number of different armies
-- **Add/Edit/Delete**: Full CRUD operations for your inventory
-- **Local Storage**: All data stored locally on your device using AsyncStorage
+### Collection Management
+- **Inventory Tracking**: Add any of ~450 MESBG units from the complete community database
+- **Paint Status**: Track each unit across 5 stages — Unpainted, Primed, In Progress, Painted, Painted & Based
+- **Equipment Options**: Select wargear per unit (options pulled from official data)
+- **Metadata**: Notes, custom name overrides, storage location, purchase date
+- **Duplicate Detection**: Warns if a unit is already in your collection, offers merge or separate entry
+- **Edit & Delete**: Full CRUD for all collection items
 
-### Planned Features
-- Army List Builder with points calculator
-- War of the Ring formation checker
-- Scenario requirement validator
-- Export/Import functionality
-- Image support for miniatures
-- Filtering and search capabilities
-- Paint progress tracking
+### Inventory View
+- Statistics dashboard: total models, painted count, army count
+- Painting progress bar (overall percentage)
+- Two view modes: card view (with unit images) and compact list view
+- Color-coded paint status badges
+- Quick action panel for fast status updates
 
-## Getting Started
+### Scenario Browser
+- Browse 500+ MESBG scenarios with search and multi-filter support
+- Filter by sourcebook, historical age (FA/SA/TA), location, and legacy status
+- **Playability Check**: Compares your collection against scenario faction requirements and shows:
+  - Green: Can play (all roles covered for that side)
+  - Orange: Partial (some roles covered)
+  - Red: Missing required models
+- Show only playable scenarios toggle
+- **Quick-Add from Scenarios**: Click missing roles to add those units directly to your collection — role requirements auto-match to database units with equipment pre-selected
 
-### Prerequisites
-- Node.js (v20+)
-- npm or yarn
-- Expo Go app on your mobile device (iOS or Android)
+### Settings
+- Light / Dark mode (persisted)
+- Clear entire collection (with confirmation)
 
-### Installation
+## Tech Stack
 
-1. Install dependencies:
-```bash
-npm install
-```
-
-2. Start the development server:
-```bash
-npm start
-```
-
-3. Scan the QR code with:
-   - **iOS**: Camera app
-   - **Android**: Expo Go app
-
-### Running on Specific Platforms
-
-```bash
-# Run on Android
-npm run android
-
-# Run on iOS
-npm run ios
-
-# Run on web
-npm run web
-```
+- **React Native 0.81.5** / **React 19**
+- **Expo SDK 54**
+- **Expo Router** — file-based navigation
+- **TypeScript 5.9** — strict mode
+- **AsyncStorage** — local device persistence (no backend, no cloud)
 
 ## Project Structure
 
 ```
 MESBG_ARMY_COLLECTOR/
-├── app/                      # App screens (using Expo Router)
-│   ├── _layout.tsx          # Root layout and navigation
-│   ├── index.tsx            # Main inventory list screen
-│   ├── add-miniature.tsx    # Add new miniature form
-│   └── miniature-detail.tsx # Miniature detail view
+├── app/                          # Expo Router screens
+│   ├── _layout.tsx              # Root navigation + theme provider
+│   ├── index.tsx                # Inventory list screen
+│   ├── add-miniature.tsx        # Add unit to collection
+│   ├── edit-miniature.tsx       # Edit collection item
+│   ├── miniature-detail.tsx     # Unit detail view
+│   ├── scenarios.tsx            # Scenario browser
+│   ├── scenario-detail.tsx      # Scenario detail + playability check
+│   ├── settings.tsx             # App settings
+│   └── +not-found.tsx           # 404 handler
 ├── src/
-│   ├── models/              # Data models
-│   │   └── Miniature.ts     # Miniature type definitions
-│   └── services/            # Business logic
-│       └── storage.ts       # AsyncStorage service
-├── assets/                  # Images and static assets
-├── app.json                 # Expo configuration
-├── package.json            # Dependencies
-└── tsconfig.json           # TypeScript configuration
+│   ├── contexts/
+│   │   └── ThemeContext.tsx     # Light/dark theme with AsyncStorage
+│   ├── data/
+│   │   ├── mesbg_data.json     # ~450 units with stats, options, costs
+│   │   ├── army_list_data.json # ~80 armies with rules and limits
+│   │   └── scenarios_*.json    # Scenario definitions + role mappings
+│   ├── models/
+│   │   └── Collection.ts       # CollectionItem interface + helpers
+│   ├── services/
+│   │   ├── mesbgDataService.ts      # Query game data (units, armies, search)
+│   │   ├── collectionStorage.ts     # AsyncStorage CRUD
+│   │   ├── collectionViewService.ts # Enrich collection with game data
+│   │   ├── scenarioService.ts       # Query and normalize scenario data
+│   │   └── imageService.ts          # Unit image URL generation
+│   ├── types/
+│   │   ├── mesbg-data.types.ts # Game data interfaces
+│   │   └── scenario.types.ts   # Scenario interfaces
+│   └── utils/
+│       ├── scenarioRoleMatching.ts # Role ↔ unit matching logic
+│       └── unitNameAliases.ts      # Unit name normalization
+├── app.json
+├── package.json
+└── tsconfig.json
 ```
 
 ## Data Model
 
-The app uses the following data structure for miniatures:
-
 ```typescript
-interface Miniature {
-  id: string;
-  name: string;
-  army: Army;
-  unitType: UnitType;
-  quantity: number;
-  paintStatus: PaintStatus;
-  points?: number;
+interface CollectionItem {
+  id: string;                    // Unique entry ID
+  model_id: string;              // Reference to MesbgUnit in game data
+  owned_quantity: number;
+  painted_quantity: number;
+  paint_status: PaintStatus;     // UNPAINTED | PRIMED | IN_PROGRESS | PAINTED | BASED
+  selected_options: string[];    // Wargear option IDs
   notes?: string;
-  dateAdded: string;
-  imageUri?: string;
+  custom_name?: string;
+  storage_location?: string;
+  purchase_date?: string;
+  date_added: string;
 }
 ```
 
-## Tech Stack
+Game data (units, armies, scenarios) is static JSON sourced from [mesbg-list-builder-v2024](https://github.com/avcordaro/mesbg-list-builder-v2024). User collection data is stored separately on-device and never affected by data updates.
 
-- **React Native**: Cross-platform mobile development
-- **Expo**: Development tooling and managed workflow
-- **Expo Router**: File-based routing
-- **TypeScript**: Type safety
-- **AsyncStorage**: Local data persistence
+## Getting Started
 
-## Contributing
+### Prerequisites
+- Node.js v20+
+- Expo Go app on your mobile device
 
-This is a personal project, but suggestions and feedback are welcome.
+### Install & Run
 
-## Future Enhancements
+```bash
+npm install
+npm start
+```
 
-- Integration with official MESBG rules and profiles
-- Cloud sync across devices
-- Army list sharing with friends
-- Battle tracker for recording game results
-- Points calculator for custom scenarios
-- Community features (share paint jobs, army lists)
+Scan the QR code with the Camera app (iOS) or Expo Go (Android).
+
+```bash
+npm run android   # Android emulator
+npm run ios       # iOS simulator
+npm run web       # Web browser
+```
+
+### Type Check
+
+```bash
+npx tsc --noEmit
+```
+
+## Not Yet Implemented
+
+- Army list builder (warband structure + points calculator)
+- War of the Ring formation checker
+- Export / import collection
+- Advanced inventory filtering and sorting
+- Cloud sync
 
 ## License
 
-This project is for personal use. Middle-earth Strategy Battle Game is a trademark of Games Workshop Ltd.
+Personal use project. Middle-earth Strategy Battle Game is a trademark of Games Workshop Ltd.

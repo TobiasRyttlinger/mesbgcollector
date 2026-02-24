@@ -16,11 +16,18 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#2c3e50"
-      }
+      },
+      "package": "com.tosryr.mesbgarmycollector"
     },
     "plugins": [
       "expo-asset",
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "975cd1f2-fb4a-48e7-9e2d-c8eb075c1896"
+      }
+    }
   }
 }
